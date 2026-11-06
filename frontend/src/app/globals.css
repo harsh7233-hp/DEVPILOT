@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f9fafb;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --border: #e5e7eb;
+  --border-hover: #d1d5db;
+  --muted: #f3f4f6;
+  --muted-foreground: #4b5563;
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --input-text: #111827;
+  --input-placeholder: #9ca3af;
+  --sidebar-bg: #f9fafb;
+  --sidebar-border: #e5e7eb;
+  --nav-bg: rgba(249,250,251,0.85);
+  --scrollbar-thumb: #d1d5db;
+  --badge-default-bg: #f3f4f6;
+  --badge-default-text: #374151;
+  --badge-default-border: #d1d5db;
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-text: #374151;
+  --btn-secondary-border: #d1d5db;
+  --btn-secondary-hover: #f3f4f6;
+  --btn-ghost-text: #6b7280;
+  --btn-ghost-hover-bg: #f3f4f6;
+  --btn-ghost-hover-text: #111827;
+  --dropdown-bg: #ffffff;
+  --dropdown-item-hover: #f3f4f6;
+  --graph-node-bg: #e8f5e9;
+  --graph-node-border: #4caf50;
+  --graph-minimap-bg: #f5f5f5;
+  --graph-controls-bg: #ffffff;
+  --graph-controls-border: #e5e7eb;
+  --code-block-bg: #f8f9fa;
+  --code-block-text: #374151;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: rgba(24,24,27,0.5);
+  --card-foreground: #fafafa;
+  --border: #27272a;
+  --border-hover: #3f3f46;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --input-bg: #27272a;
+  --input-border: #3f3f46;
+  --input-text: #d4d4d8;
+  --input-placeholder: #52525b;
+  --sidebar-bg: #09090b;
+  --sidebar-border: #27272a;
+  --nav-bg: rgba(9,9,11,0.8);
+  --scrollbar-thumb: #3f3f46;
+  --badge-default-bg: #27272a;
+  --badge-default-text: #a1a1aa;
+  --badge-default-border: #3f3f46;
+  --btn-secondary-bg: #27272a;
+  --btn-secondary-text: #d4d4d8;
+  --btn-secondary-border: #3f3f46;
+  --btn-secondary-hover: #3f3f46;
+  --btn-ghost-text: #a1a1aa;
+  --btn-ghost-hover-bg: #27272a;
+  --btn-ghost-hover-text: #fafafa;
+  --dropdown-bg: #18181b;
+  --dropdown-item-hover: #27272a;
+  --graph-node-bg: #1e3a5f;
+  --graph-node-border: #3b82f6;
+  --graph-minimap-bg: #09090b;
+  --graph-controls-bg: #18181b;
+  --graph-controls-border: #27272a;
+  --code-block-bg: #18181b;
+  --code-block-text: #d4d4d8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+input, textarea, select {
+  background: var(--input-bg) !important;
+  border-color: var(--input-border) !important;
+  color: var(--input-text) !important;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--input-placeholder) !important;
+}
+
+::selection {
+  background: #10b981;
+  color: #ffffff;
+}
+
+/* ── Horizontal overflow protection (mobile) ── */
+html, body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+/* ── DevPilot animation utilities ── */
+@keyframes dp-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dp-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+@keyframes dp-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes dp-spin {
+  to { transform: rotate(360deg); }
+}
+
+.dp-fade-up {
+  opacity: 0;
+  animation: dp-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.dp-pulse {
+  animation: dp-pulse-dot 2s ease-in-out infinite;
+}
+.dp-flow-line {
+  background: linear-gradient(90deg, var(--border) 0%, #10b981 50%, var(--border) 100%);
+  background-size: 200% 100%;
+  animation: dp-flow 2.8s linear infinite;
+}
+.dp-spinner {
+  border: 2px solid var(--border);
+  border-top-color: transparent;
+  border-radius: 9999px;
+  animation: dp-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-fade-up,
+  .dp-pulse,
+  .dp-flow-line,
+  .dp-spinner {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

@@ -24,11 +24,3 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      - key: GROQ_MODEL
-        value: openai/gpt-oss-20b
-      - key: EMBEDDING_MODEL
-        value: text-embedding-3-small
-      - key: EMBEDDING_BASE_URL
-        sync: false
-      - key: EMBEDDING_API_KEY
-        sync: false

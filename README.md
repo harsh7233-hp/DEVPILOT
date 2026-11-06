@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # DevPilot
 
 AI-powered developer platform that analyzes your codebase and predicts the impact of every change.
@@ -53,3 +54,6 @@ devpilot/
 ├── .env.example       # Environment template
 └── README.md
 ```
+=======
+# DEVPILOT
+>>>>>>> 44cedd436048fa06e64bd6ca7157b5e3bc7120dc

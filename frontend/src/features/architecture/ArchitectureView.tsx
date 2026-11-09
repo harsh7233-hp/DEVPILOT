@@ -262,7 +262,7 @@ export function ArchitectureView() {
             const msg = err instanceof Error ? err.message : "Failed to build graph";
             setError(
               /no completed analysis/i.test(msg)
-                ? "No completed analysis found for this repository. Run Analyze on the Repositories page, then retry."
+                ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."
                 : msg
             );
           }
@@ -338,7 +338,7 @@ export function ArchitectureView() {
           const msg = err instanceof Error ? err.message : "Failed to build graph";
           setError(
             /no completed analysis/i.test(msg)
-              ? "No completed analysis found for this repository. Run Analyze on the Repositories page, then retry."
+              ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."
               : msg
           );
           setLoading(false);

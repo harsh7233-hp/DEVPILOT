@@ -6,7 +6,17 @@ import { RepoSelector } from "@/components/ui/RepoSelector";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { AIDisclaimer } from "@/features/ai-assistant/AIDisclaimer";
 import { api } from "@/lib/api";
-import { friendlyErrorMessage } from "@/lib/utils";
+import { friendlyErrorMessage, isNetworkError } from "@/lib/utils";
+
+async function withNetworkRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    return await fn();
+  }
+}
 
 interface Source { file: string; line: string; entity?: string; }
 
@@ -31,6 +41,7 @@ export function AIAssistantView() {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Thinking...");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const graphReadyRef = useRef<Set<string>>(new Set());
 
@@ -44,21 +55,58 @@ export function AIAssistantView() {
     setRepoValue(`${o}/${r}`);
   };
 
+  const analyzeAndBuild = useCallback(async (o: string, r: string) => {
+    let branch = "main";
+    try {
+      const info = await api.repositories.get(o, r);
+      branch = info.repository.default_branch || branch;
+    } catch {
+      // fall back to main
+    }
+
+    setStatusMessage("Starting repository analysis...");
+    const { job_id } = await api.analysis.start(o, r, branch);
+    for (let attempt = 0; attempt < 240; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const { job } = await api.analysis.getStatus(job_id);
+      if (job.status === "completed") {
+        setStatusMessage("Building dependency graph...");
+        await withNetworkRetry(() => api.graph.build(o, r));
+        return;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Analysis failed");
+      }
+      setStatusMessage(`Analyzing repository... ${Math.round((job.progress || 0) * 100)}%`);
+    }
+    throw new Error("Analysis timed out. Try again from the Repositories page.");
+  }, []);
+
   const handleSend = useCallback(async () => {
     if (!canSend) return;
     const question = input.trim();
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: question, timestamp: Date.now() }]);
     setLoading(true);
+    setStatusMessage("Preparing repository graph...");
     try {
       const key = `${owner.trim()}/${repo.trim()}`;
       if (!graphReadyRef.current.has(key)) {
-        const existing = await api.graph.getNodes(owner.trim(), repo.trim());
+        const existing = await withNetworkRetry(() =>
+          api.graph.getNodes(owner.trim(), repo.trim())
+        );
         if (existing.nodes.length === 0) {
-          await api.graph.build(owner.trim(), repo.trim());
+          try {
+            await withNetworkRetry(() => api.graph.build(owner.trim(), repo.trim()));
+          } catch (err) {
+            const raw = err instanceof Error ? err.message : "";
+            if (!/no completed analysis/i.test(raw)) throw err;
+            await analyzeAndBuild(owner.trim(), repo.trim());
+          }
         }
         graphReadyRef.current.add(key);
       }
+      setStatusMessage("Thinking...");
       const res = await api.ai.chat(owner.trim(), repo.trim(), question);
       setMessages((prev) => [...prev, { role: "assistant", content: res.answer, sources: res.sources, error: res.error, timestamp: Date.now() }]);
     } catch (err) {
@@ -68,7 +116,7 @@ export function AIAssistantView() {
         : raw;
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${message}`, error: message, timestamp: Date.now() }]);
     } finally { setLoading(false); }
-  }, [canSend, input, owner, repo]);
+  }, [canSend, input, owner, repo, analyzeAndBuild]);
 
   const handleClear = useCallback(async () => {
     if (owner.trim() && repo.trim()) {
@@ -92,7 +140,7 @@ export function AIAssistantView() {
           {loading && (
             <div className="flex justify-start">
               <div className="rounded-xl px-4 py-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <LoadingState message="Thinking..." className="!py-0" />
+                <LoadingState message={statusMessage} className="!py-0" />
               </div>
             </div>
           )}

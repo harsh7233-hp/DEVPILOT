@@ -3,6 +3,8 @@ services:
     name: devpilot-api
     runtime: docker
     plan: free
+    branch: main
+    autoDeploy: true
     rootDir: backend
     healthCheckPath: /api/health
     envVars:

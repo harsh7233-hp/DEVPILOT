@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter
 
 from app.config import settings
@@ -8,7 +10,8 @@ router = APIRouter()
 
 @router.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "devpilot-backend"}
+    commit = os.getenv("RENDER_GIT_COMMIT", "")[:7]
+    return {"status": "ok", "service": "devpilot-backend", "commit": commit or "local"}
 
 
 @router.get("/health/ai")

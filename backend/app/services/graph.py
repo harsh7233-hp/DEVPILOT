@@ -38,6 +38,18 @@ def get_session() -> Generator[Optional[Session], None, None]:
         session.close()
 
 
+@contextmanager
+def suspend_graph_saves() -> Generator[None, None, None]:
+    """Batch persistence for graph stores that save on every mutation."""
+    driver = _get_driver()
+    suspend = getattr(driver, "suspended_saves", None)
+    if suspend is None:
+        yield
+        return
+    with suspend():
+        yield
+
+
 def close_driver():
     global _driver
     if _driver:

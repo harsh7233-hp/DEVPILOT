@@ -31,6 +31,7 @@ export function AIAssistantView() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const graphReadyRef = useRef<Set<string>>(new Set());
 
   const canSend = owner.trim().length > 0 && repo.trim().length > 0 && input.trim().length > 0 && !loading;
 
@@ -49,10 +50,21 @@ export function AIAssistantView() {
     setMessages((prev) => [...prev, { role: "user", content: question, timestamp: Date.now() }]);
     setLoading(true);
     try {
+      const key = `${owner.trim()}/${repo.trim()}`;
+      if (!graphReadyRef.current.has(key)) {
+        const existing = await api.graph.getNodes(owner.trim(), repo.trim());
+        if (existing.nodes.length === 0) {
+          await api.graph.build(owner.trim(), repo.trim());
+        }
+        graphReadyRef.current.add(key);
+      }
       const res = await api.ai.chat(owner.trim(), repo.trim(), question);
       setMessages((prev) => [...prev, { role: "assistant", content: res.answer, sources: res.sources, error: res.error, timestamp: Date.now() }]);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+      const raw = err instanceof Error ? err.message : "Unknown error";
+      const message = /no completed analysis|graph not found/i.test(raw)
+        ? "This repository has no analysis graph yet. Open Repositories, run Analyze, wait for it to complete, then ask again."
+        : raw;
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${message}`, error: message, timestamp: Date.now() }]);
     } finally { setLoading(false); }
   }, [canSend, input, owner, repo]);

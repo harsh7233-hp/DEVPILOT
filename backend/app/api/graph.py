@@ -12,6 +12,7 @@ from app.services.graph import (
     get_all_relationships,
     get_graph_summary,
     get_node_detail,
+    suspend_graph_saves,
 )
 from app.services.session import SESSION_COOKIE, decode_session
 
@@ -53,9 +54,10 @@ async def build_graph(
         )
 
     latest = max(completed, key=lambda j: j.id)
-    result = build_graph_from_parsed(
-        rid, owner, repo, latest.parsed_files, latest.files
-    )
+    with suspend_graph_saves():
+        result = build_graph_from_parsed(
+            rid, owner, repo, latest.parsed_files, latest.files
+        )
     return result
 
 

@@ -102,6 +102,9 @@ export function RepositoriesView() {
           if (status.job.status === "completed" || status.job.status === "failed") {
             clearInterval(poll);
             if (mountedRef.current) setAnalyzing(false);
+            if (status.job.status === "completed") {
+              void api.graph.build(owner, repoName).catch(() => {});
+            }
           }
         } catch {
           clearInterval(poll);

@@ -121,6 +121,7 @@ export function ArchitectureView() {
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState("Loading dependency graph...");
   const [error, setError] = useState<string | null>(null);
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [relsData, setRelsData] = useState<GraphRelationship[]>([]);
@@ -254,10 +255,16 @@ export function ArchitectureView() {
             setRelsData(rels2);
             setGraphNodes(nodes2);
             buildFlowGraph(nodes2, rels2);
-          } catch {
+          } catch (err) {
             setGraphNodes([]);
             setRelsData([]);
             buildFlowGraph([], []);
+            const msg = err instanceof Error ? err.message : "Failed to build graph";
+            setError(
+              /no completed analysis/i.test(msg)
+                ? "No completed analysis found for this repository. Run Analyze on the Repositories page, then retry."
+                : msg
+            );
           }
           return;
         }
@@ -282,20 +289,63 @@ export function ArchitectureView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chrome.isDark]);
 
+  const startAnalysisAndBuild = useCallback(async (owner: string, repo: string) => {
+    setLoadingMessage("Preparing repository analysis...");
+    let branch = "main";
+    try {
+      const info = await api.repositories.get(owner, repo);
+      branch = info.repository.default_branch || branch;
+    } catch {
+      // fall back to main
+    }
+
+    const { job_id } = await api.analysis.start(owner, repo, branch);
+    for (let attempt = 0; attempt < 240; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (!mountedRef.current) return;
+      const { job } = await api.analysis.getStatus(job_id);
+      if (job.status === "completed") {
+        setLoadingMessage("Building dependency graph...");
+        await api.graph.build(owner, repo);
+        return;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Analysis failed");
+      }
+      setLoadingMessage(
+        `Analyzing repository... ${Math.round((job.progress || 0) * 100)}%`
+      );
+    }
+    throw new Error("Analysis timed out. Try again from the Repositories page.");
+  }, []);
+
   const buildFromAnalysis = useCallback(
     async (owner: string, repo: string) => {
       setLoading(true);
+      setError(null);
+      setLoadingMessage("Building dependency graph...");
       try {
-        await api.graph.build(owner, repo);
+        try {
+          await api.graph.build(owner, repo);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Failed to build graph";
+          if (!/no completed analysis/i.test(msg)) throw err;
+          await startAnalysisAndBuild(owner, repo);
+        }
         await fetchGraph(owner, repo, false);
       } catch (err) {
         if (mountedRef.current) {
-          setError(err instanceof Error ? err.message : "Failed to build graph");
+          const msg = err instanceof Error ? err.message : "Failed to build graph";
+          setError(
+            /no completed analysis/i.test(msg)
+              ? "No completed analysis found for this repository. Run Analyze on the Repositories page, then retry."
+              : msg
+          );
           setLoading(false);
         }
       }
     },
-    [fetchGraph]
+    [fetchGraph, startAnalysisAndBuild]
   );
 
   useEffect(() => {
@@ -453,11 +503,11 @@ export function ArchitectureView() {
             </div>
           ) : loading ? (
             <div className="absolute inset-0 flex items-center justify-center">
-              <LoadingState message="Loading dependency graph..." />
+              <LoadingState message={loadingMessage} />
             </div>
           ) : error ? (
             <div className="absolute inset-0 flex items-center justify-center">
-              <ErrorState message={error} onRetry={handleLoadGraph} />
+              <ErrorState message={error} onRetry={handleRebuild} />
             </div>
           ) : flowNodes.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center">

@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 _GRAPH_FILE = os.path.join(_DATA_DIR, "graph.json")
@@ -21,22 +22,49 @@ class InMemoryGraph:
     def __init__(self) -> None:
         self._nodes: Dict[str, Dict[str, Any]] = {}
         self._rels: List[Dict[str, Any]] = []
+        self._suspended = False
+        self._dirty = False
         self._load()
 
     def session(self) -> _Session:
         return _Session(self)
 
     def close(self) -> None:
-        pass
+        if self._dirty:
+            self._flush()
 
     def _save(self) -> None:
+        if self._suspended:
+            self._dirty = True
+            return
+        self._flush()
+
+    def _flush(self) -> None:
         try:
             os.makedirs(_DATA_DIR, exist_ok=True)
             data = {"nodes": self._nodes, "rels": self._rels}
             with open(_GRAPH_FILE, "w") as f:
                 json.dump(data, f)
+            self._dirty = False
         except Exception:
             pass
+
+    @contextmanager
+    def suspended_saves(self) -> Iterator[None]:
+        """Batch many mutations into a single disk write.
+
+        Graph builds touch thousands of nodes/relationships. Writing the whole
+        JSON file on every merge is quadratic; suspend writes during the build
+        and persist once when the outer context exits.
+        """
+        previous = self._suspended
+        self._suspended = True
+        try:
+            yield
+        finally:
+            self._suspended = previous
+            if not self._suspended and self._dirty:
+                self._flush()
 
     def _load(self) -> None:
         if not os.path.exists(_GRAPH_FILE):

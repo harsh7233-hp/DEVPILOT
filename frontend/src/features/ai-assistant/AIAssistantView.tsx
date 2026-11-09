@@ -6,6 +6,7 @@ import { RepoSelector } from "@/components/ui/RepoSelector";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { AIDisclaimer } from "@/features/ai-assistant/AIDisclaimer";
 import { api } from "@/lib/api";
+import { friendlyErrorMessage } from "@/lib/utils";
 
 interface Source { file: string; line: string; entity?: string; }
 
@@ -61,7 +62,7 @@ export function AIAssistantView() {
       const res = await api.ai.chat(owner.trim(), repo.trim(), question);
       setMessages((prev) => [...prev, { role: "assistant", content: res.answer, sources: res.sources, error: res.error, timestamp: Date.now() }]);
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Unknown error";
+      const raw = friendlyErrorMessage(err, "Unknown error");
       const message = /no completed analysis|graph not found/i.test(raw)
         ? "This repository has no analysis graph yet. Open Repositories, run Analyze, wait for it to complete, then ask again."
         : raw;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classNames, formatDate, riskColor, languageColor } from "@/lib/utils";
+import { classNames, formatDate, riskColor, languageColor, friendlyErrorMessage } from "@/lib/utils";
 
 describe("classNames", () => {
   it("joins strings", () => {
@@ -78,5 +78,19 @@ describe("languageColor", () => {
 
   it("returns zinc for unknown", () => {
     expect(languageColor("Rust")).toBe("bg-zinc-500");
+  });
+});
+
+describe("friendlyErrorMessage", () => {
+  it("maps network failures to a retry hint", () => {
+    expect(friendlyErrorMessage(new Error("Failed to fetch"))).toMatch(/Could not reach the backend/);
+  });
+
+  it("leaves other errors unchanged", () => {
+    expect(friendlyErrorMessage(new Error("No completed analysis found"))).toBe("No completed analysis found");
+  });
+
+  it("uses the fallback for non-Error values", () => {
+    expect(friendlyErrorMessage("boom", "Fallback")).toBe("Fallback");
   });
 });

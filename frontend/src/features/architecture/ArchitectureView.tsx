@@ -24,6 +24,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { RepoSelector } from "@/components/ui/RepoSelector";
 import { api } from "@/lib/api";
+import { friendlyErrorMessage } from "@/lib/utils";
 import { useTheme } from "@/lib/theme-context";
 import type { GraphNode, GraphRelationship, GraphNodeDetail } from "@/lib/graph-types";
 
@@ -259,7 +260,7 @@ export function ArchitectureView() {
             setGraphNodes([]);
             setRelsData([]);
             buildFlowGraph([], []);
-            const msg = err instanceof Error ? err.message : "Failed to build graph";
+            const msg = friendlyErrorMessage(err, "Failed to build graph");
             setError(
               /no completed analysis/i.test(msg)
                 ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."
@@ -335,7 +336,7 @@ export function ArchitectureView() {
         await fetchGraph(owner, repo, false);
       } catch (err) {
         if (mountedRef.current) {
-          const msg = err instanceof Error ? err.message : "Failed to build graph";
+          const msg = friendlyErrorMessage(err, "Failed to build graph");
           setError(
             /no completed analysis/i.test(msg)
               ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."

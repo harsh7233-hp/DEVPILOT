@@ -10,7 +10,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { useAuth } from "@/lib/auth-context";
 import { api, type GitHubRepo, type Branch, type AnalysisJob } from "@/lib/api";
-import { languageColor } from "@/lib/utils";
+import { friendlyErrorMessage, languageColor } from "@/lib/utils";
 import { AnalysisProgress } from "./AnalysisProgress";
 
 export function RepositoriesView() {
@@ -39,7 +39,7 @@ export function RepositoriesView() {
           if (mountedRef.current) setRepos(data.repositories);
         } catch (err) {
           if (mountedRef.current) {
-            setError(err instanceof Error ? err.message : "Failed to load repositories");
+            setError(friendlyErrorMessage(err, "Failed to load repositories"));
           }
         } finally {
           if (mountedRef.current) setLoading(false);
@@ -58,7 +58,7 @@ export function RepositoriesView() {
       if (mountedRef.current) setRepos(data.repositories);
     } catch (err) {
       if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : "Failed to load repositories");
+        setError(friendlyErrorMessage(err, "Failed to load repositories"));
       }
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -126,7 +126,7 @@ export function RepositoriesView() {
           total_files: 0,
           filtered_files: 0,
           files: [],
-          error: err instanceof Error ? err.message : "Unknown error",
+          error: friendlyErrorMessage(err, "Unknown error"),
         });
         setAnalyzing(false);
       }

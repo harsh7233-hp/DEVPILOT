@@ -11,7 +11,12 @@ router = APIRouter()
 @router.get("/health")
 async def health_check():
     commit = os.getenv("RENDER_GIT_COMMIT", "")[:7]
-    return {"status": "ok", "service": "devpilot-backend", "commit": commit or "local"}
+    return {
+        "status": "ok",
+        "service": "devpilot-backend",
+        "commit": commit or "local",
+        "graph_backend": "neo4j" if settings.neo4j_password else "memory",
+    }
 
 
 @router.get("/health/ai")

@@ -24,7 +24,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { RepoSelector } from "@/components/ui/RepoSelector";
 import { api } from "@/lib/api";
-import { friendlyErrorMessage } from "@/lib/utils";
+import { friendlyErrorMessage, isNetworkError } from "@/lib/utils";
 import { useTheme } from "@/lib/theme-context";
 import type { GraphNode, GraphRelationship, GraphNodeDetail } from "@/lib/graph-types";
 
@@ -226,6 +226,31 @@ export function ArchitectureView() {
     applyFilters();
   }, [applyFilters]);
 
+  const loadGraphData = useCallback(async (owner: string, repo: string) => {
+    const load = () =>
+      Promise.all([
+        api.graph.getNodes(owner, repo),
+        api.graph.getRelationships(owner, repo),
+      ]);
+    try {
+      return await load();
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return await load();
+    }
+  }, []);
+
+  const buildGraphWithRetry = useCallback(async (owner: string, repo: string) => {
+    try {
+      return await api.graph.build(owner, repo);
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return await api.graph.build(owner, repo);
+    }
+  }, []);
+
   const fetchGraph = useCallback(
     async (owner: string, repo: string, autoBuild = true) => {
       if (!mountedRef.current) return;
@@ -233,10 +258,7 @@ export function ArchitectureView() {
       setError(null);
       setSelectedNode(null);
       try {
-        const [nodesRes, relsRes] = await Promise.all([
-          api.graph.getNodes(owner, repo),
-          api.graph.getRelationships(owner, repo),
-        ]);
+        const [nodesRes, relsRes] = await loadGraphData(owner, repo);
         if (!mountedRef.current) return;
 
         const nodes = nodesRes.nodes as unknown as GraphNode[];
@@ -245,11 +267,8 @@ export function ArchitectureView() {
 
         if (nodes.length === 0 && autoBuild) {
           try {
-            await api.graph.build(owner, repo);
-            const [nodesRes2, relsRes2] = await Promise.all([
-              api.graph.getNodes(owner, repo),
-              api.graph.getRelationships(owner, repo),
-            ]);
+            await buildGraphWithRetry(owner, repo);
+            const [nodesRes2, relsRes2] = await loadGraphData(owner, repo);
             if (!mountedRef.current) return;
             const nodes2 = nodesRes2.nodes as unknown as GraphNode[];
             const rels2 = relsRes2.relationships;
@@ -279,7 +298,7 @@ export function ArchitectureView() {
         if (mountedRef.current) setLoading(false);
       }
     },
-    [buildFlowGraph]
+    [buildFlowGraph, loadGraphData, buildGraphWithRetry]
   );
 
   // Re-style edges/canvas when the theme changes
@@ -307,7 +326,7 @@ export function ArchitectureView() {
       const { job } = await api.analysis.getStatus(job_id);
       if (job.status === "completed") {
         setLoadingMessage("Building dependency graph...");
-        await api.graph.build(owner, repo);
+        await buildGraphWithRetry(owner, repo);
         return;
       }
       if (job.status === "failed") {
@@ -318,7 +337,7 @@ export function ArchitectureView() {
       );
     }
     throw new Error("Analysis timed out. Try again from the Repositories page.");
-  }, []);
+  }, [buildGraphWithRetry]);
 
   const buildFromAnalysis = useCallback(
     async (owner: string, repo: string) => {
@@ -327,7 +346,7 @@ export function ArchitectureView() {
       setLoadingMessage("Building dependency graph...");
       try {
         try {
-          await api.graph.build(owner, repo);
+          await buildGraphWithRetry(owner, repo);
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Failed to build graph";
           if (!/no completed analysis/i.test(msg)) throw err;
@@ -346,7 +365,7 @@ export function ArchitectureView() {
         }
       }
     },
-    [fetchGraph, startAnalysisAndBuild]
+    [fetchGraph, startAnalysisAndBuild, buildGraphWithRetry]
   );
 
   useEffect(() => {

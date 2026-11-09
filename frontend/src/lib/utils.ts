@@ -22,12 +22,17 @@ export function classNames(...classes: (string | false | null | undefined)[]): s
   return classes.filter(Boolean).join(" ");
 }
 
+export function isNetworkError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(message);
+}
+
 export function friendlyErrorMessage(
   error: unknown,
   fallback = "Something went wrong"
 ): string {
   const message = error instanceof Error ? error.message : fallback;
-  if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+  if (isNetworkError(error)) {
     return "Could not reach the backend. It may be starting up or redeploying—wait a few seconds, then click Try again.";
   }
   return message;

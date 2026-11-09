@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -17,6 +18,8 @@ from app.services.graph import (
 from app.services.session import SESSION_COOKIE, decode_session
 
 router = APIRouter(prefix="/repositories", tags=["graph"])
+
+logger = logging.getLogger(__name__)
 
 
 def _get_token(request: Request) -> str:
@@ -54,9 +57,16 @@ async def build_graph(
         )
 
     latest = max(completed, key=lambda j: j.id)
-    with suspend_graph_saves():
-        result = build_graph_from_parsed(
-            rid, owner, repo, latest.parsed_files, latest.files
+    try:
+        with suspend_graph_saves():
+            result = build_graph_from_parsed(
+                rid, owner, repo, latest.parsed_files, latest.files
+            )
+    except Exception:
+        logger.exception("Graph build failed for %s/%s (job %s)", owner, repo, latest.id)
+        raise HTTPException(
+            status_code=500,
+            detail="Graph build failed. Re-run the analysis and try again.",
         )
     return result
 

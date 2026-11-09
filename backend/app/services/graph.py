@@ -329,6 +329,20 @@ def _make_depends_on_rel(
 # ── Graph build from parsed files ──────────────────────────────────
 
 
+def _to_mapping(item: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(item, dict):
+        return item
+    to_dict = getattr(item, "to_dict", None)
+    if callable(to_dict):
+        try:
+            result = to_dict()
+        except Exception:
+            return None
+        if isinstance(result, dict):
+            return result
+    return None
+
+
 def build_graph_from_parsed(
     repo_id: str,
     owner: str,
@@ -336,6 +350,9 @@ def build_graph_from_parsed(
     parsed_files: List[Dict[str, Any]],
     all_files: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    parsed_items = [m for m in (_to_mapping(p) for p in (parsed_files or [])) if m]
+    file_items = [m for m in (_to_mapping(f) for f in (all_files or [])) if m]
+
     with get_session() as session:
         if session is None:
             return {"status": "error", "message": "Neo4j not configured"}
@@ -358,8 +375,8 @@ def build_graph_from_parsed(
             "relationships": 0,
         }
 
-        if all_files:
-            for f in all_files:
+        if file_items:
+            for f in file_items:
                 fp = f.get("path", "")
                 lang = f.get("language", "")
                 if fp:
@@ -371,8 +388,10 @@ def build_graph_from_parsed(
                     _merge_rel(session, repo_file, file_node_ids[fp], "CONTAINS")
                     stats["relationships"] += 1
 
-        for pf in parsed_files:
+        for pf in parsed_items:
             fp = pf.get("file_path", "")
+            if not fp:
+                continue
             lang = pf.get("language", "")
             if fp and fp not in file_node_ids:
                 file_node_ids[fp] = upsert_file(session, repo_id, fp, lang)
@@ -380,33 +399,41 @@ def build_graph_from_parsed(
                 repo_file = f"Repository:{repo_id}"
                 _merge_rel(session, repo_file, file_node_ids[fp], "CONTAINS")
 
-            for func in pf.get("functions", []):
+            for raw_func in pf.get("functions") or []:
+                func = _to_mapping(raw_func)
+                fname = func.get("name") if func else None
+                if not fname:
+                    continue
                 fid = upsert_function(
                     session,
                     repo_id,
-                    func["name"],
+                    fname,
                     fp,
                     func.get("start_line", 0),
                     func.get("end_line", 0),
                     func.get("is_async", False),
                     func.get("is_exported", False),
                 )
-                function_node_ids[f"{fp}:{func['name']}"] = fid
+                function_node_ids[f"{fp}:{fname}"] = fid
                 _merge_rel(session, file_node_ids[fp], fid, "DEFINES")
                 stats["functions"] += 1
 
-            for cls in pf.get("classes", []):
+            for raw_cls in pf.get("classes") or []:
+                cls = _to_mapping(raw_cls)
+                cname = cls.get("name") if cls else None
+                if not cname:
+                    continue
                 cid = upsert_class(
                     session,
                     repo_id,
-                    cls["name"],
+                    cname,
                     fp,
                     cls.get("start_line", 0),
                     cls.get("end_line", 0),
                     cls.get("extends"),
                     cls.get("is_exported", False),
                 )
-                class_node_ids[f"{fp}:{cls['name']}"] = cid
+                class_node_ids[f"{fp}:{cname}"] = cid
                 _merge_rel(session, file_node_ids[fp], cid, "DEFINES")
                 stats["classes"] += 1
 
@@ -422,7 +449,7 @@ def build_graph_from_parsed(
                         stats["extends"] += 1
                         stats["relationships"] += 1
 
-                for iface in cls.get("implements", []):
+                for iface in cls.get("implements") or []:
                     iid = class_node_ids.get(f"{fp}:{iface}")
                     if not iid:
                         for key, cid_val in class_node_ids.items():
@@ -433,30 +460,38 @@ def build_graph_from_parsed(
                         _make_implements_rel(session, cid, iid)
                         stats["relationships"] += 1
 
-            for method in pf.get("methods", []):
+            for raw_method in pf.get("methods") or []:
+                method = _to_mapping(raw_method)
+                mname = method.get("name") if method else None
+                if not mname:
+                    continue
+                class_name = method.get("class_name", "")
                 mid = upsert_method(
                     session,
                     repo_id,
-                    method["name"],
-                    method.get("class_name", ""),
+                    mname,
+                    class_name,
                     fp,
                     method.get("start_line", 0),
                     method.get("end_line", 0),
                     method.get("is_async", False),
                 )
-                method_node_ids[f"{fp}:{method.get('class_name', '')}.{method['name']}"] = mid
-                parent_cid = class_node_ids.get(f"{fp}:{method.get('class_name', '')}")
+                method_node_ids[f"{fp}:{class_name}.{mname}"] = mid
+                parent_cid = class_node_ids.get(f"{fp}:{class_name}")
                 if parent_cid:
                     _merge_rel(session, parent_cid, mid, "HAS_METHOD")
                 stats["methods"] += 1
 
-        for pf in parsed_files:
+        for pf in parsed_items:
             fp = pf.get("file_path", "")
             source_file_id = file_node_ids.get(fp)
             if not source_file_id:
                 continue
 
-            for imp in pf.get("imports", []):
+            for raw_imp in pf.get("imports") or []:
+                imp = _to_mapping(raw_imp)
+                if not imp:
+                    continue
                 src = imp.get("source", "")
                 target_file_id = file_node_ids.get(src)
                 if target_file_id:
@@ -464,7 +499,10 @@ def build_graph_from_parsed(
                     stats["imports"] += 1
                     stats["relationships"] += 1
 
-            for call in pf.get("calls", []):
+            for raw_call in pf.get("calls") or []:
+                call = _to_mapping(raw_call)
+                if not call:
+                    continue
                 call_name = call.get("name", "")
                 callee_id = function_node_ids.get(f"{fp}:{call_name}")
                 if not callee_id:

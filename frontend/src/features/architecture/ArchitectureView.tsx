@@ -274,7 +274,7 @@ export function ArchitectureView() {
         buildFlowGraph(nodes, rels);
       } catch (err) {
         if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load graph");
+        setError(friendlyErrorMessage(err, "Failed to load graph"));
       } finally {
         if (mountedRef.current) setLoading(false);
       }

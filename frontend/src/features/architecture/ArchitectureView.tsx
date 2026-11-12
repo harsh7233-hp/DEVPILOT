@@ -49,6 +49,11 @@ const REL_COLORS: Record<string, string> = {
 };
 
 const ALL_NODE_TYPES = ["File", "Class", "Function", "Method", "ApiRoute"];
+const ENTITY_NODE_TYPES = new Set(["Class", "Function", "Method", "ApiRoute"]);
+
+function hasGraphEntities(nodes: GraphNode[]): boolean {
+  return nodes.some((n) => ENTITY_NODE_TYPES.has((n.label as string) || ""));
+}
 
 /** Theme-aware chrome colors for the ReactFlow canvas. */
 function useGraphChrome() {
@@ -137,6 +142,7 @@ export function ArchitectureView() {
   const chrome = useGraphChrome();
   const rfInstance = useRef<ReactFlowInstance | null>(null);
   const mountedRef = useRef(true);
+  const reanalyzedRef = useRef<Set<string>>(new Set());
 
   const filteredNodeIds = useMemo(() => {
     const visible = new Set<string>();
@@ -251,64 +257,6 @@ export function ArchitectureView() {
     }
   }, []);
 
-  const fetchGraph = useCallback(
-    async (owner: string, repo: string, autoBuild = true) => {
-      if (!mountedRef.current) return;
-      setLoading(true);
-      setError(null);
-      setSelectedNode(null);
-      try {
-        const [nodesRes, relsRes] = await loadGraphData(owner, repo);
-        if (!mountedRef.current) return;
-
-        const nodes = nodesRes.nodes as unknown as GraphNode[];
-        const rels = relsRes.relationships;
-        setRelsData(rels);
-
-        if (nodes.length === 0 && autoBuild) {
-          try {
-            await buildGraphWithRetry(owner, repo);
-            const [nodesRes2, relsRes2] = await loadGraphData(owner, repo);
-            if (!mountedRef.current) return;
-            const nodes2 = nodesRes2.nodes as unknown as GraphNode[];
-            const rels2 = relsRes2.relationships;
-            setRelsData(rels2);
-            setGraphNodes(nodes2);
-            buildFlowGraph(nodes2, rels2);
-          } catch (err) {
-            setGraphNodes([]);
-            setRelsData([]);
-            buildFlowGraph([], []);
-            const msg = friendlyErrorMessage(err, "Failed to build graph");
-            setError(
-              /no completed analysis/i.test(msg)
-                ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."
-                : msg
-            );
-          }
-          return;
-        }
-
-        setGraphNodes(nodes);
-        buildFlowGraph(nodes, rels);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(friendlyErrorMessage(err, "Failed to load graph"));
-      } finally {
-        if (mountedRef.current) setLoading(false);
-      }
-    },
-    [buildFlowGraph, loadGraphData, buildGraphWithRetry]
-  );
-
-  // Re-style edges/canvas when the theme changes
-  useEffect(() => {
-    if (graphNodes.length > 0 || relsData.length > 0) {
-      buildFlowGraph(graphNodes, relsData);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chrome.isDark]);
-
   const startAnalysisAndBuild = useCallback(async (owner: string, repo: string) => {
     setLoadingMessage("Preparing repository analysis...");
     let branch = "main";
@@ -339,6 +287,99 @@ export function ArchitectureView() {
     throw new Error("Analysis timed out. Try again from the Repositories page.");
   }, [buildGraphWithRetry]);
 
+  const fetchGraph = useCallback(
+    async (owner: string, repo: string, autoBuild = true) => {
+      if (!mountedRef.current) return;
+      setLoading(true);
+      setError(null);
+      setSelectedNode(null);
+      const key = `${owner}/${repo}`;
+
+      const applyGraph = (nodes: GraphNode[], rels: GraphRelationship[]) => {
+        if (!mountedRef.current) return;
+        setRelsData(rels);
+        setGraphNodes(nodes);
+        buildFlowGraph(nodes, rels);
+      };
+
+      const reload = async () => {
+        const [nodesRes, relsRes] = await loadGraphData(owner, repo);
+        if (!mountedRef.current) return null;
+        const nodes = nodesRes.nodes as unknown as GraphNode[];
+        applyGraph(nodes, relsRes.relationships);
+        return nodes;
+      };
+
+      try {
+        const [nodesRes, relsRes] = await loadGraphData(owner, repo);
+        if (!mountedRef.current) return;
+
+        const nodes = nodesRes.nodes as unknown as GraphNode[];
+        applyGraph(nodes, relsRes.relationships);
+
+        if (!autoBuild) return;
+
+        const stale = nodes.length > 0 && !hasGraphEntities(nodes);
+        if (nodes.length > 0 && !stale) return;
+        if (stale && reanalyzedRef.current.has(key)) return;
+
+        if (stale) {
+          reanalyzedRef.current.add(key);
+          await startAnalysisAndBuild(owner, repo);
+          await reload();
+          return;
+        }
+
+        try {
+          await buildGraphWithRetry(owner, repo);
+        } catch (err) {
+          const msg = friendlyErrorMessage(err, "Failed to build graph");
+          if (!/no completed analysis/i.test(msg) || reanalyzedRef.current.has(key)) {
+            throw err;
+          }
+          reanalyzedRef.current.add(key);
+          await startAnalysisAndBuild(owner, repo);
+          await reload();
+          return;
+        }
+
+        const built = await reload();
+        if (
+          built &&
+          built.length > 0 &&
+          !hasGraphEntities(built) &&
+          !reanalyzedRef.current.has(key)
+        ) {
+          reanalyzedRef.current.add(key);
+          await startAnalysisAndBuild(owner, repo);
+          await reload();
+        }
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setGraphNodes([]);
+        setRelsData([]);
+        buildFlowGraph([], []);
+        const msg = friendlyErrorMessage(err, "Failed to load graph");
+        setError(
+          /no completed analysis/i.test(msg)
+            ? "No completed analysis found for this repository. Click Try again to analyze it and build the graph."
+            : msg
+        );
+      } finally {
+        if (mountedRef.current) setLoading(false);
+      }
+    },
+    [buildFlowGraph, loadGraphData, buildGraphWithRetry, startAnalysisAndBuild]
+  );
+
+  // Re-style edges/canvas when the theme changes
+  useEffect(() => {
+    if (graphNodes.length > 0 || relsData.length > 0) {
+      buildFlowGraph(graphNodes, relsData);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chrome.isDark]);
+
   const buildFromAnalysis = useCallback(
     async (owner: string, repo: string) => {
       setLoading(true);
@@ -366,6 +407,24 @@ export function ArchitectureView() {
       }
     },
     [fetchGraph, startAnalysisAndBuild, buildGraphWithRetry]
+  );
+
+  const reanalyzeAndBuild = useCallback(
+    async (owner: string, repo: string) => {
+      setLoading(true);
+      setError(null);
+      setLoadingMessage("Preparing repository analysis...");
+      try {
+        await startAnalysisAndBuild(owner, repo);
+        await fetchGraph(owner, repo, false);
+      } catch (err) {
+        if (mountedRef.current) {
+          setError(friendlyErrorMessage(err, "Failed to analyze repository"));
+          setLoading(false);
+        }
+      }
+    },
+    [fetchGraph, startAnalysisAndBuild]
   );
 
   useEffect(() => {
@@ -414,7 +473,11 @@ export function ArchitectureView() {
 
   const handleRebuild = () => {
     if (!selectedRepo) return;
-    void buildFromAnalysis(selectedRepo.owner, selectedRepo.repo);
+    if (graphNodes.length === 0 || !hasGraphEntities(graphNodes)) {
+      void reanalyzeAndBuild(selectedRepo.owner, selectedRepo.repo);
+    } else {
+      void buildFromAnalysis(selectedRepo.owner, selectedRepo.repo);
+    }
   };
 
   const onNodeClick = useCallback(

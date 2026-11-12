@@ -13,6 +13,9 @@ SUPPORTED_EXTENSIONS = {
     ".cjs": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
+    ".py": "python",
+    ".pyi": "python",
+    ".java": "java",
 }
 
 

@@ -1,1 +1,1 @@
-from app.analyzer.parser import JSParser, TSParser  # noqa: F401
+from app.analyzer.parser import JavaParser, JSParser, PythonParser, TSParser  # noqa: F401

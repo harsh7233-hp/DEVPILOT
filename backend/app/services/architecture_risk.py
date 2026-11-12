@@ -98,7 +98,7 @@ def _longest_path_estimate(start: str, adj: Dict[str, Set[str]], max_depth: int 
 
 def compute_architecture_risk(rid: str) -> Dict[str, Any]:
     raw_nodes = get_all_nodes(rid)
-    nodes: List[Dict[str, Any]] = [dict(n["n"]) for n in raw_nodes]
+    nodes: List[Dict[str, Any]] = raw_nodes
     rels = get_all_relationships(rid)
 
     if not nodes:

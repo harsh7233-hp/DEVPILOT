@@ -37,11 +37,20 @@ class TestLanguageDetection:
     def test_detect_cjs(self):
         assert detect_language("lib/index.cjs") == "javascript"
 
-    def test_unsupported_returns_none(self):
-        assert detect_language("src/main.py") is None
+    def test_detect_python(self):
+        assert detect_language("src/main.py") == "python"
+
+    def test_detect_python_stub(self):
+        assert detect_language("src/types.pyi") == "python"
+
+    def test_detect_java(self):
+        assert detect_language("src/Main.java") == "java"
 
     def test_unsupported_returns_none_md(self):
         assert detect_language("README.md") is None
+
+    def test_unsupported_returns_none_ruby(self):
+        assert detect_language("src/main.rb") is None
 
 
 # ── Supported extensions ───────────────────────────────────────────
@@ -56,6 +65,8 @@ class TestSupportedExtensions:
         assert ".jsx" in exts
         assert ".mjs" in exts
         assert ".cjs" in exts
+        assert ".py" in exts
+        assert ".java" in exts
 
 
 # ── JS Parser ──────────────────────────────────────────────────────
@@ -221,6 +232,108 @@ class TestTSParser:
         assert "handleSubmit" in names
 
 
+# ── Python Parser ──────────────────────────────────────────────────
+
+
+PYTHON_SAMPLE = """
+import os
+from typing import List
+
+class Base:
+    def method(self, x: int) -> str:
+        return helper(x)
+
+class Child(Base, Mixin):
+    async def run(self):
+        return self.method(1)
+
+def top(a, b=2, *args, **kwargs):
+    return Child().run()
+"""
+
+
+class TestPythonParser:
+    def test_parse_python(self):
+        result = analyze_file(PYTHON_SAMPLE, "app.py")
+        assert result is not None
+        assert result.language == "python"
+        assert result.file_path == "app.py"
+
+    def test_extract_classes_and_bases(self):
+        result = analyze_file(PYTHON_SAMPLE, "app.py")
+        classes = {c.name: c for c in result.classes}
+        assert classes["Base"].extends is None
+        assert classes["Child"].extends == "Base"
+        assert "Mixin" in classes["Child"].implements
+
+    def test_extract_functions_and_methods(self):
+        result = analyze_file(PYTHON_SAMPLE, "app.py")
+        function_names = [f.name for f in result.functions]
+        method_names = [m.name for m in result.methods]
+        assert "top" in function_names
+        assert "method" in method_names
+        assert "run" in method_names
+        assert [m for m in result.methods if m.name == "run"][0].is_async is True
+
+    def test_extract_imports_and_calls(self):
+        result = analyze_file(PYTHON_SAMPLE, "app.py")
+        sources = [i.source for i in result.imports]
+        assert "os" in sources
+        assert "typing" in sources
+        call_names = [c.name for c in result.calls]
+        assert "helper" in call_names
+        assert "run" in call_names
+
+
+# ── Java Parser ────────────────────────────────────────────────────
+
+
+JAVA_SAMPLE = """
+package com.example;
+import java.util.List;
+
+public class Foo extends Bar implements Baz, Qux {
+    public Foo(int x) { this.x = x; }
+    public int add(int a, int b) { return helper(a, b); }
+    public static void main(String[] args) { new Foo(1).add(2, 3); }
+}
+
+interface Baz { void doIt(); }
+enum Color { RED, GREEN }
+"""
+
+
+class TestJavaParser:
+    def test_parse_java(self):
+        result = analyze_file(JAVA_SAMPLE, "Foo.java")
+        assert result is not None
+        assert result.language == "java"
+
+    def test_extract_classes_extends_implements(self):
+        result = analyze_file(JAVA_SAMPLE, "Foo.java")
+        classes = {c.name: c for c in result.classes}
+        assert classes["Foo"].extends == "Bar"
+        assert classes["Foo"].implements == ["Baz", "Qux"]
+        assert "Baz" in classes
+        assert "Color" in classes
+
+    def test_extract_methods(self):
+        result = analyze_file(JAVA_SAMPLE, "Foo.java")
+        methods = {(m.class_name, m.name) for m in result.methods}
+        assert ("Foo", "Foo") in methods
+        assert ("Foo", "add") in methods
+        assert ("Foo", "main") in methods
+        assert ("Baz", "doIt") in methods
+
+    def test_extract_imports_and_calls(self):
+        result = analyze_file(JAVA_SAMPLE, "Foo.java")
+        sources = [i.source for i in result.imports]
+        assert "java.util.List" in sources
+        call_names = [c.name for c in result.calls]
+        assert "helper" in call_names
+        assert "add" in call_names
+
+
 # ── Analyze file via base interface ────────────────────────────────
 
 
@@ -239,7 +352,7 @@ class TestAnalyzeFileInterface:
         assert result.language == "javascript"
 
     def test_unsupported_file_returns_none(self):
-        result = analyze_file("print('hello')", "main.py")
+        result = analyze_file("puts 'hello'", "main.rb")
         assert result is None
 
     def test_broken_code_returns_result(self):

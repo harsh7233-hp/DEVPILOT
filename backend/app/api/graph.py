@@ -112,7 +112,7 @@ async def list_nodes(
     _get_token(request)
     rid = _repo_id(owner, repo)
     nodes = get_all_nodes(rid, label or None)
-    return {"nodes": [dict(n["n"]) for n in nodes]}
+    return {"nodes": nodes}
 
 
 @router.get("/{owner}/{repo}/graph/relationships")

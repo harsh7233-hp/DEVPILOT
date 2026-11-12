@@ -63,7 +63,7 @@ async def code_review(request: Request, body: ReviewRequest):
     rid = _repo_id(body.owner, body.repo)
     nodes_resp = get_all_nodes(rid)
     if nodes_resp:
-        nodes = [dict(r["n"]) for r in nodes_resp]
+        nodes = nodes_resp
         rels = get_all_relationships(rid)
 
     result = await review_code(

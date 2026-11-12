@@ -7,6 +7,7 @@ import tree_sitter_typescript as tsts
 from tree_sitter import Language, Parser
 
 from app.analyzer.base import BaseParser, register_parser
+from app.analyzer.java_parser import JavaParser
 from app.analyzer.models import (
     CallEntity,
     ClassEntity,
@@ -16,6 +17,7 @@ from app.analyzer.models import (
     ImportEntity,
     MethodEntity,
 )
+from app.analyzer.python_parser import PythonParser
 
 JS_LANG = Language(tsjs.language())
 TS_LANG = Language(tsts.language_typescript())
@@ -374,3 +376,5 @@ class TSParser(BaseParser):
 
 register_parser("javascript", JSParser())
 register_parser("typescript", TSParser(tsx=False))
+register_parser("python", PythonParser())
+register_parser("java", JavaParser())

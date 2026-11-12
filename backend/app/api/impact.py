@@ -57,7 +57,7 @@ async def impact_analyze(request: Request, body: AnalyzeRequest):
     if not nodes_resp:
         raise HTTPException(status_code=404, detail="Graph not found. Build it first.")
 
-    nodes = [dict(r["n"]) for r in nodes_resp]
+    nodes = nodes_resp
     relationships = rels_resp
 
     graph = Graph(nodes, relationships)
@@ -83,7 +83,7 @@ async def impact_analyze_get(
     if not nodes_resp:
         raise HTTPException(status_code=404, detail="Graph not found. Build it first.")
 
-    nodes = [dict(r["n"]) for r in nodes_resp]
+    nodes = nodes_resp
     relationships = rels_resp
 
     graph = Graph(nodes, relationships)

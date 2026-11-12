@@ -212,6 +212,29 @@ class TestGraphQueries:
         assert delete_graph("repo1") is False
 
 
+def test_get_all_nodes_includes_label():
+    rid = "test-label-normalization"
+    delete_graph(rid)
+    parsed = [
+        {
+            "file_path": "a.py",
+            "language": "python",
+            "functions": [{"name": "f", "start_line": 1, "end_line": 2}],
+            "classes": [],
+            "methods": [],
+            "imports": [],
+            "calls": [],
+        }
+    ]
+    build_graph_from_parsed(rid, "o", "r", parsed, [{"path": "a.py"}])
+    nodes = get_all_nodes(rid)
+    if not nodes:
+        pytest.skip("graph backend not configured")
+    labels = {n.get("label") for n in nodes}
+    assert {"Repository", "File", "Function"} <= labels
+    delete_graph(rid)
+
+
 # ── Graph build with cross-file imports ────────────────────────────
 
 

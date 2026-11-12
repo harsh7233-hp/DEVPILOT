@@ -512,6 +512,11 @@ def build_graph_from_parsed(
                         if key.endswith(f":{call_name}"):
                             callee_id = fid
                             break
+                if not callee_id:
+                    for key, mid in method_node_ids.items():
+                        if key.endswith(f".{call_name}"):
+                            callee_id = mid
+                            break
                 if callee_id and callee_id != source_file_id:
                     _make_calls_rel(session, source_file_id, callee_id)
                     stats["calls"] += 1
@@ -577,6 +582,25 @@ def get_graph_summary(repo_id: str) -> Optional[Dict[str, Any]]:
         }
 
 
+def _node_props(node: Any) -> Dict[str, Any]:
+    """Return node properties with a normalized ``label`` field."""
+    props = dict(node)
+    label = ""
+    if isinstance(node, dict):
+        label = node.get("_label") or node.get("label") or ""
+    else:
+        labels = getattr(node, "labels", None)
+        if labels:
+            try:
+                label = next(iter(labels))
+            except StopIteration:
+                label = ""
+    props.pop("_label", None)
+    if label and not props.get("label"):
+        props["label"] = label
+    return props
+
+
 def get_node_detail(repo_id: str, node_id: str) -> Optional[Dict[str, Any]]:
     with get_session() as session:
         if session is None:
@@ -589,7 +613,7 @@ def get_node_detail(repo_id: str, node_id: str) -> Optional[Dict[str, Any]]:
         )
         if not node:
             return None
-        n = dict(node["n"])
+        n = _node_props(node["n"])
 
         outgoing = _run(
             session,
@@ -623,16 +647,18 @@ def get_all_nodes(repo_id: str, label: Optional[str] = None) -> List[Dict[str, A
         if session is None:
             return []
         if label:
-            return _run(
+            rows = _run(
                 session,
                 f"MATCH (n:{label} {{repo_id: $repo_id}}) RETURN n ORDER BY n.name",
                 repo_id=repo_id,
             )
-        return _run(
-            session,
-            "MATCH (n {repo_id: $repo_id}) RETURN n ORDER BY labels(n)[0], n.name",
-            repo_id=repo_id,
-        )
+        else:
+            rows = _run(
+                session,
+                "MATCH (n {repo_id: $repo_id}) RETURN n ORDER BY labels(n)[0], n.name",
+                repo_id=repo_id,
+            )
+        return [_node_props(row["n"]) for row in rows]
 
 
 def get_all_relationships(repo_id: str) -> List[Dict[str, Any]]:

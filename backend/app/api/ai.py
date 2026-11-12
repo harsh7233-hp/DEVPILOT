@@ -60,7 +60,7 @@ async def ai_chat(request: Request, body: ChatRequest):
             detail="Graph not found. Analyze and build the graph first.",
         )
 
-    nodes = [dict(r["n"]) for r in nodes_resp]
+    nodes = nodes_resp
     rels = rels_resp
 
     result = await answer_question(
@@ -113,7 +113,7 @@ async def ai_ask(request: Request, body: AskRequest):
     rid = _repo_id(body.owner, body.repo)
     nodes_resp = get_all_nodes(rid)
     rels_resp = get_all_relationships(rid)
-    nodes = [dict(r["n"]) for r in nodes_resp] if nodes_resp else []
+    nodes = nodes_resp if nodes_resp else []
     rels = rels_resp or []
 
     security, intel, risk = _load_context_reports(body.owner, body.repo)

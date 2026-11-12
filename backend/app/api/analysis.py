@@ -4,7 +4,7 @@ import re
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
-from app.analyzer.base import analyze_file
+from app.analyzer.base import analyze_file, detect_language as detect_analyzable_language
 from app.services.analysis import (
     create_job,
     detect_language,
@@ -70,7 +70,7 @@ async def _run_analysis(job_id: str, token: str) -> None:
             }
             files.append(file_info)
 
-            if lang in ("TypeScript", "JavaScript"):
+            if detect_analyzable_language(item["path"]) is not None:
                 try:
                     content = await get_file_content(
                         token, job.owner, job.repo, item["path"], job.branch
@@ -133,4 +133,6 @@ async def get_analysis_status(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return {"job": job.to_dict()}
+    data = job.to_dict()
+    data.pop("parsed_files", None)
+    return {"job": data}

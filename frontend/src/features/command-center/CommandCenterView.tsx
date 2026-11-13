@@ -95,7 +95,6 @@ export function CommandCenterView() {
   useEffect(() => {
     if (!repoKey) return;
     let cancelled = false;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
     queueMicrotask(() => setDeepScanLoading(true));
     const [o, n] = repoKey.split("/");
     api.security.report(o, n)
@@ -104,7 +103,7 @@ export function CommandCenterView() {
       })
       .catch(() => { if (!cancelled) setDeepScanReport(null); })
       .finally(() => { if (!cancelled) setDeepScanLoading(false); });
-    return () => { cancelled = true; if (pollTimer) clearInterval(pollTimer); };
+    return () => { cancelled = true; };
   }, [repoKey]);
 
   /* ── Pipeline detection ── */

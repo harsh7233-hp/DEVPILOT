@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Request
 
 from app.services.ai import _conversations
-from app.services.analysis import get_jobs_for_repo
+from app.services.analysis import get_jobs_for_repo, latest_job
 from app.services.graph import get_graph_summary
 from app.services.session import SESSION_COOKIE, decode_session
 from app.services.github import get_repositories, get_repository
@@ -34,7 +34,7 @@ def _get_repo_stats(owner: str, repo: str) -> Dict[str, Any]:
     """Get real stats for a single repository."""
     jobs = get_jobs_for_repo(owner, repo)
     completed = [j for j in jobs if j.status == "completed"]
-    latest = max(completed, key=lambda j: j.id) if completed else None
+    latest = latest_job(completed)
 
     # File and entity counts from latest analysis
     total_files = latest.total_files if latest else 0

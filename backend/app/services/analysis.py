@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -67,6 +68,7 @@ class AnalysisJob:
         branch: str,
     ) -> None:
         self.id: str = str(uuid.uuid4())
+        self.created_at: float = time.time()
         self.owner: str = owner
         self.repo: str = repo
         self.branch: str = branch
@@ -82,6 +84,7 @@ class AnalysisJob:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
+            "created_at": self.created_at,
             "owner": self.owner,
             "repo": self.repo,
             "branch": self.branch,
@@ -118,6 +121,7 @@ def _load_jobs() -> None:
         for jid, d in data.items():
             job = AnalysisJob(d["owner"], d["repo"], d["branch"])
             job.id = d["id"]
+            job.created_at = d.get("created_at", 0)
             job.status = d["status"]
             job.progress = d.get("progress", 0)
             job.message = d.get("message", "")
@@ -147,6 +151,13 @@ def get_job(job_id: str) -> Optional[AnalysisJob]:
 
 def get_jobs_for_repo(owner: str, repo: str) -> List[AnalysisJob]:
     return [j for j in _jobs.values() if j.owner == owner and j.repo == repo]
+
+
+def latest_job(jobs: List[AnalysisJob]) -> Optional[AnalysisJob]:
+    """Return the most recently created job, preserving insertion order on ties."""
+    if not jobs:
+        return None
+    return max(enumerate(jobs), key=lambda pair: (pair[1].created_at, pair[0]))[1]
 
 
 def save_job(job: AnalysisJob) -> None:

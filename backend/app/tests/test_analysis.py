@@ -2,6 +2,7 @@ from app.services.analysis import (
     AnalysisJob,
     detect_language,
     filter_files,
+    latest_job,
     should_ignore_path,
 )
 
@@ -121,3 +122,21 @@ def test_analysis_job_to_dict():
     assert d["status"] == "pending"
     assert "id" in d
     assert d["files"] == []
+
+
+def test_latest_job_prefers_newest_creation_time():
+    first = AnalysisJob("owner", "repo", "main")
+    second = AnalysisJob("owner", "repo", "main")
+    first.created_at = 1.0
+    second.created_at = 2.0
+    assert latest_job([first, second]) is second
+    assert latest_job([second, first]) is second
+
+
+def test_latest_job_ties_fall_back_to_insertion_order():
+    first = AnalysisJob("owner", "repo", "main")
+    second = AnalysisJob("owner", "repo", "main")
+    first.created_at = 0
+    second.created_at = 0
+    assert latest_job([first, second]) is second
+    assert latest_job([]) is None

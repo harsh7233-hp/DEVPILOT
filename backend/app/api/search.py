@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.services.analysis import get_job, get_jobs_for_repo
+from app.services.analysis import get_job, get_jobs_for_repo, latest_job
 from app.services.search.chunker import chunk_all_files
 from app.services.search.embeddings import generate_embeddings
 from app.services.search.store import get_store, delete_store
@@ -124,7 +124,7 @@ def _build_index_from_jobs(rid: str, owner: str, repo: str) -> int:
     if not completed:
         return 0
 
-    latest = max(completed, key=lambda j: j.id)
+    latest = latest_job(completed)
     sources: Dict[str, str] = {}
     for f in latest.files:
         fp = f.get("path", "")

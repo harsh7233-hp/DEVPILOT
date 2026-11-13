@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services.analysis import get_jobs_for_repo
+from app.services.analysis import get_jobs_for_repo, latest_job
 from app.services.graph import (
     build_graph_from_parsed,
     delete_graph,
@@ -56,7 +56,7 @@ async def build_graph(
             "Run an analysis first via POST /api/analysis.",
         )
 
-    latest = max(completed, key=lambda j: j.id)
+    latest = latest_job(completed)
     try:
         with suspend_graph_saves():
             result = build_graph_from_parsed(

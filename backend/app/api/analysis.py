@@ -12,7 +12,12 @@ from app.services.analysis import (
     get_job,
     save_job,
 )
-from app.services.github import get_file_content, get_file_tree
+from app.services.github import (
+    GitHubAPIError,
+    get_file_content,
+    get_file_tree_checked,
+    get_repo_tarball,
+)
 from app.services.session import SESSION_COOKIE, decode_session
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -40,13 +45,22 @@ async def _run_analysis(job_id: str, token: str) -> None:
         job.message = "Fetching repository file tree..."
         job.progress = 0.1
 
-        tree = await get_file_tree(token, job.owner, job.repo, job.branch)
+        try:
+            tree = await get_file_tree_checked(token, job.owner, job.repo, job.branch)
+        except GitHubAPIError as exc:
+            if exc.status_code in (401, 403):
+                raise RuntimeError(
+                    "GitHub denied access to this repository. Your session may have "
+                    "expired or the GitHub API rate limit was reached. Sign out, sign "
+                    "in again, and retry."
+                ) from exc
+            raise RuntimeError(f"GitHub API error: {exc.message}") from exc
 
         if not tree:
-            job.status = "completed"
-            job.message = "Repository is empty or no files found"
-            job.progress = 1.0
-            return
+            raise RuntimeError(
+                "Repository is empty or GitHub returned no files. Check that the "
+                "repository is accessible and try again."
+            )
 
         job.total_files = len(tree)
         job.progress = 0.4
@@ -58,8 +72,23 @@ async def _run_analysis(job_id: str, token: str) -> None:
         job.progress = 0.7
         job.message = f"Processing {len(filtered)} source files..."
 
+        archive: dict = {}
+        try:
+            archive = await get_repo_tarball(token, job.owner, job.repo, job.branch)
+        except GitHubAPIError as exc:
+            if exc.status_code in (401, 403):
+                raise RuntimeError(
+                    "GitHub denied access to this repository. Your session may have "
+                    "expired or the GitHub API rate limit was reached. Sign out, sign "
+                    "in again, and retry."
+                ) from exc
+            # Non-fatal archive errors fall back to per-file fetching.
+            archive = {}
+
         files = []
         parsed = []
+        analyzable = 0
+        fetch_failures = 0
         for i, item in enumerate(filtered):
             lang = detect_language(item["path"])
             file_info = {
@@ -71,26 +100,40 @@ async def _run_analysis(job_id: str, token: str) -> None:
             files.append(file_info)
 
             if detect_analyzable_language(item["path"]) is not None:
-                try:
-                    content = await get_file_content(
-                        token, job.owner, job.repo, item["path"], job.branch
-                    )
-                    if content:
-                        analysis = analyze_file(content, item["path"])
-                        if analysis:
-                            parsed.append(analysis.to_dict())
-                except Exception:
-                    pass
+                analyzable += 1
+                content = archive.get(item["path"])
+                if content is None:
+                    try:
+                        content = await get_file_content(
+                            token, job.owner, job.repo, item["path"], job.branch
+                        )
+                    except Exception:
+                        content = None
+                if content:
+                    analysis = analyze_file(content, item["path"])
+                    if analysis:
+                        parsed.append(analysis.to_dict())
+                else:
+                    fetch_failures += 1
 
             if (i + 1) % 25 == 0:
                 job.progress = 0.7 + 0.3 * ((i + 1) / len(filtered))
                 job.message = f"Analyzing files... {i + 1}/{len(filtered)}"
+
+        if analyzable and not parsed:
+            raise RuntimeError(
+                "Could not read any source files from GitHub. Your session may have "
+                "expired or the GitHub API rate limit was reached. Sign out, sign in "
+                "again, and retry."
+            )
 
         job.files = files
         job.parsed_files = parsed
         job.progress = 1.0
         job.status = "completed"
         job.message = f"Analysis complete. {len(parsed)}/{len(files)} files parsed with tree-sitter."
+        if fetch_failures:
+            job.message += f" ({fetch_failures} files could not be read)"
 
     except Exception as exc:
         job.status = "failed"

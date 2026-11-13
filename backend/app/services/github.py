@@ -1,3 +1,5 @@
+import io
+import tarfile
 from typing import Any, Dict, List, Optional
 
 import re
@@ -8,6 +10,17 @@ from app.config import settings
 
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+MAX_TARBALL_BYTES = 50 * 1024 * 1024
+MAX_TARBALL_FILE_BYTES = 1_000_000
+
+
+class GitHubAPIError(Exception):
+    """Raised when GitHub rejects a request that must succeed."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"GitHub API error {status_code}: {message}")
 
 
 async def exchange_code_for_token(code: str) -> Optional[str]:
@@ -172,6 +185,122 @@ async def get_file_tree(
             }
             for item in data.get("tree", [])
         ]
+
+
+async def get_file_tree_checked(
+    token: str, owner: str, repo: str, branch: str = "main"
+) -> List[Dict[str, Any]]:
+    """Like :func:`get_file_tree`, but raises on auth/rate-limit failures."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{branch}",
+            params={"recursive": "1"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+        )
+        if response.status_code != 200:
+            detail = ""
+            try:
+                detail = response.json().get("message", "")
+            except Exception:
+                detail = response.text[:200]
+            raise GitHubAPIError(
+                response.status_code, detail or "Unable to list repository files"
+            )
+        data = response.json()
+        return [
+            {
+                "path": item["path"],
+                "type": item["type"],
+                "size": item.get("size", 0),
+                "sha": item.get("sha", ""),
+            }
+            for item in data.get("tree", [])
+        ]
+
+
+async def get_repo_tarball(
+    token: str, owner: str, repo: str, branch: str = "main"
+) -> Dict[str, str]:
+    """Download a repository archive and return ``path -> text`` for text files.
+
+    This uses a single GitHub API request instead of one request per file,
+    avoiding rate limits and speeding up analysis. Returns an empty mapping
+    when the archive is too large or contains no readable text files.
+    """
+    api_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/tarball/{branch}"
+    auth_headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    async with httpx.AsyncClient(follow_redirects=False, timeout=90.0) as client:
+        async with client.stream("GET", api_url, headers=auth_headers) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("location")
+                if not location:
+                    raise GitHubAPIError(
+                        response.status_code, "Missing repository archive redirect"
+                    )
+            elif response.status_code == 200:
+                location = api_url
+            else:
+                await response.aread()
+                detail = ""
+                try:
+                    detail = response.json().get("message", "")
+                except Exception:
+                    detail = response.text[:200]
+                raise GitHubAPIError(
+                    response.status_code,
+                    detail or "Unable to download repository archive",
+                )
+
+        # Follow the signed redirect without the Authorization header.
+        async with client.stream(
+            "GET", location, headers={"Accept": "application/octet-stream"}
+        ) as stream:
+            if stream.status_code != 200:
+                await stream.aread()
+                detail = ""
+                try:
+                    detail = stream.json().get("message", "")
+                except Exception:
+                    detail = stream.text[:200]
+                raise GitHubAPIError(
+                    stream.status_code,
+                    detail or "Unable to download repository archive",
+                )
+
+            chunks: List[bytes] = []
+            total = 0
+            async for chunk in stream.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_TARBALL_BYTES:
+                    return {}
+                chunks.append(chunk)
+
+    contents: Dict[str, str] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(b"".join(chunks)), mode="r:gz") as tar:
+            for member in tar.getmembers():
+                if not member.isfile() or member.size > MAX_TARBALL_FILE_BYTES:
+                    continue
+                parts = member.name.split("/", 1)
+                if len(parts) != 2:
+                    continue
+                fileobj = tar.extractfile(member)
+                if fileobj is None:
+                    continue
+                try:
+                    contents[parts[1]] = fileobj.read().decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+    except (tarfile.TarError, OSError) as exc:
+        raise GitHubAPIError(502, f"Unable to read repository archive: {exc}") from exc
+    return contents
 
 
 async def get_file_content(

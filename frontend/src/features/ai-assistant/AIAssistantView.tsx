@@ -18,6 +18,12 @@ async function withNetworkRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+const ENTITY_LABELS = new Set(["Class", "Function", "Method", "ApiRoute"]);
+
+function hasGraphEntities(nodes: { label?: string }[]): boolean {
+  return nodes.some((n) => ENTITY_LABELS.has(n.label || ""));
+}
+
 interface Source { file: string; line: string; entity?: string; }
 
 interface ChatMessage {
@@ -44,6 +50,7 @@ export function AIAssistantView() {
   const [statusMessage, setStatusMessage] = useState("Thinking...");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const graphReadyRef = useRef<Set<string>>(new Set());
+  const reanalyzedRef = useRef<Set<string>>(new Set());
 
   const canSend = owner.trim().length > 0 && repo.trim().length > 0 && input.trim().length > 0 && !loading;
 
@@ -90,18 +97,31 @@ export function AIAssistantView() {
     setLoading(true);
     setStatusMessage("Preparing repository graph...");
     try {
-      const key = `${owner.trim()}/${repo.trim()}`;
+      const o = owner.trim();
+      const r = repo.trim();
+      const key = `${o}/${r}`;
       if (!graphReadyRef.current.has(key)) {
-        const existing = await withNetworkRetry(() =>
-          api.graph.getNodes(owner.trim(), repo.trim())
-        );
+        const existing = await withNetworkRetry(() => api.graph.getNodes(o, r));
+        let builtFromAnalysis = false;
         if (existing.nodes.length === 0) {
           try {
-            await withNetworkRetry(() => api.graph.build(owner.trim(), repo.trim()));
+            await withNetworkRetry(() => api.graph.build(o, r));
+            builtFromAnalysis = true;
           } catch (err) {
             const raw = err instanceof Error ? err.message : "";
             if (!/no completed analysis/i.test(raw)) throw err;
-            await analyzeAndBuild(owner.trim(), repo.trim());
+            reanalyzedRef.current.add(key);
+            await analyzeAndBuild(o, r);
+          }
+        } else if (!hasGraphEntities(existing.nodes) && !reanalyzedRef.current.has(key)) {
+          reanalyzedRef.current.add(key);
+          await analyzeAndBuild(o, r);
+        }
+        if (builtFromAnalysis && !reanalyzedRef.current.has(key)) {
+          const built = await withNetworkRetry(() => api.graph.getNodes(o, r));
+          if (!hasGraphEntities(built.nodes)) {
+            reanalyzedRef.current.add(key);
+            await analyzeAndBuild(o, r);
           }
         }
         graphReadyRef.current.add(key);

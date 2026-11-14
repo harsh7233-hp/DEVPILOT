@@ -73,17 +73,18 @@ async def _run_analysis(job_id: str, token: str) -> None:
         job.message = f"Processing {len(filtered)} source files..."
 
         archive: dict = {}
-        try:
-            archive = await get_repo_tarball(token, job.owner, job.repo, job.branch)
-        except GitHubAPIError as exc:
-            if exc.status_code in (401, 403):
-                raise RuntimeError(
-                    "GitHub denied access to this repository. Your session may have "
-                    "expired or the GitHub API rate limit was reached. Sign out, sign "
-                    "in again, and retry."
-                ) from exc
-            # Non-fatal archive errors fall back to per-file fetching.
-            archive = {}
+        if filtered:
+            try:
+                archive = await get_repo_tarball(token, job.owner, job.repo, job.branch)
+            except GitHubAPIError as exc:
+                if exc.status_code in (401, 403):
+                    raise RuntimeError(
+                        "GitHub denied access to this repository. Your session may have "
+                        "expired or the GitHub API rate limit was reached. Sign out, sign "
+                        "in again, and retry."
+                    ) from exc
+                # Non-fatal archive errors fall back to per-file fetching.
+                archive = {}
 
         files = []
         parsed = []

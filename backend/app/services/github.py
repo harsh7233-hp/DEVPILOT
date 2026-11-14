@@ -237,6 +237,10 @@ async def get_repo_tarball(
     }
 
     async with httpx.AsyncClient(follow_redirects=False, timeout=90.0) as client:
+        location: Optional[str] = None
+        chunks: List[bytes] = []
+        total = 0
+
         async with client.stream("GET", api_url, headers=auth_headers) as response:
             if response.status_code in (301, 302, 303, 307, 308):
                 location = response.headers.get("location")
@@ -245,7 +249,11 @@ async def get_repo_tarball(
                         response.status_code, "Missing repository archive redirect"
                     )
             elif response.status_code == 200:
-                location = api_url
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_TARBALL_BYTES:
+                        return {}
+                    chunks.append(chunk)
             else:
                 await response.aread()
                 detail = ""
@@ -258,29 +266,28 @@ async def get_repo_tarball(
                     detail or "Unable to download repository archive",
                 )
 
-        # Follow the signed redirect without the Authorization header.
-        async with client.stream(
-            "GET", location, headers={"Accept": "application/octet-stream"}
-        ) as stream:
-            if stream.status_code != 200:
-                await stream.aread()
-                detail = ""
-                try:
-                    detail = stream.json().get("message", "")
-                except Exception:
-                    detail = stream.text[:200]
-                raise GitHubAPIError(
-                    stream.status_code,
-                    detail or "Unable to download repository archive",
-                )
+        if location is not None:
+            # Follow the signed redirect without the Authorization header.
+            async with client.stream(
+                "GET", location, headers={"Accept": "application/octet-stream"}
+            ) as stream:
+                if stream.status_code != 200:
+                    await stream.aread()
+                    detail = ""
+                    try:
+                        detail = stream.json().get("message", "")
+                    except Exception:
+                        detail = stream.text[:200]
+                    raise GitHubAPIError(
+                        stream.status_code,
+                        detail or "Unable to download repository archive",
+                    )
 
-            chunks: List[bytes] = []
-            total = 0
-            async for chunk in stream.aiter_bytes():
-                total += len(chunk)
-                if total > MAX_TARBALL_BYTES:
-                    return {}
-                chunks.append(chunk)
+                async for chunk in stream.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_TARBALL_BYTES:
+                        return {}
+                    chunks.append(chunk)
 
     contents: Dict[str, str] = {}
     try:

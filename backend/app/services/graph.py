@@ -534,6 +534,11 @@ def _use_memory_graph() -> None:
     global _driver
     from app.services.graph_memory import InMemoryGraph
 
+    if _driver is not None:
+        try:
+            _driver.close()
+        except Exception:
+            pass
     _driver = InMemoryGraph()
 
 

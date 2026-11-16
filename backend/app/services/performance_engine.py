@@ -24,7 +24,7 @@ STATIC_LABEL = "Potential Performance Issue (static analysis)"
 
 # loop openers for common syntaxes
 LOOP_RE = re.compile(
-    r"^\s*(for\s*\(|while\s*\(|for\s+\w+\s+in\s|foreach|\.(forEach|map)\(|do\s*\{)"
+    r"^\s*(for\s*\(|while\s*\(|while\s+[^(]|for\s+\w+\s+in\s|foreach|\.(forEach|map)\(|do\s*\{)"
 )
 AWAIT_RE = re.compile(r"\bawait\s+")
 MEMBERSHIP_RE = re.compile(r"\.(includes|indexOf|find|findIndex|some|every)\s*\(")

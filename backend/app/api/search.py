@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.services.analysis import get_job, get_jobs_for_repo, latest_job
 from app.services.search.chunker import chunk_all_files
+from app.services.search.embeddings import _get_config as _get_embedding_config
 from app.services.search.embeddings import generate_embeddings
 from app.services.search.store import get_store, delete_store
 from app.services.session import SESSION_COOKIE, decode_session
@@ -90,6 +91,7 @@ async def semantic_search(request: Request, body: SemanticSearchRequest):
         ],
         "total_indexed": store.count,
         "query": body.query,
+        "mode": "external" if _get_embedding_config() else "local",
     }
 
 
@@ -125,11 +127,11 @@ def _build_index_from_jobs(rid: str, owner: str, repo: str) -> int:
         return 0
 
     latest = latest_job(completed)
-    sources: Dict[str, str] = {}
+    sources: Dict[str, str] = dict(getattr(latest, "contents", {}) or {})
     for f in latest.files:
         fp = f.get("path", "")
         content = f.get("content", "")
-        if fp and content:
+        if fp and content and fp not in sources:
             sources[fp] = content
 
     chunks = chunk_all_files(latest.parsed_files, sources)

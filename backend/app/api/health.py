@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.config import settings
 from app.services.ai import _get_api_config, probe_llm
+from app.services.search.embeddings import _get_config as _get_embedding_config
 
 router = APIRouter()
 
@@ -32,11 +33,12 @@ async def health_check():
 async def ai_status(probe: bool = False):
     """Reports whether the Groq AI layer is configured. Never exposes secrets."""
     config = _get_api_config()
-    embeddings = bool(settings.embedding_base_url and settings.embedding_api_key)
+    embedding_config = _get_embedding_config()
     result: Dict[str, Any] = {
         "ai_configured": config is not None,
         "model": config["model"] if config else None,
-        "embeddings_configured": embeddings,
+        "embeddings_configured": embedding_config is not None,
+        "embeddings_mode": "external" if embedding_config else "local",
     }
 
     if probe:

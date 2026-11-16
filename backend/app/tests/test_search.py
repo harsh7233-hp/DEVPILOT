@@ -6,8 +6,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.search.chunker import CodeChunk, chunk_all_files, chunk_parsed_file
-from app.services.search.embeddings import cosine_similarity
+from app.services.search.embeddings import (
+    _local_embedding,
+    cosine_similarity,
+    generate_embeddings,
+)
 from app.services.search.store import VectorStore, get_store, delete_store
+from app.api.search import _build_index_from_jobs, _repo_id
+from app.services.analysis import _jobs, _save_jobs, create_job, save_job
 
 
 # ── Chunker tests ─────────────────────────────────────────────────
@@ -218,3 +224,42 @@ class TestStoreRegistry:
         get_store("test_repo")
         assert delete_store("test_repo") is True
         assert delete_store("test_repo") is False
+
+
+@pytest.mark.asyncio
+async def test_generate_embeddings_uses_local_fallback_without_provider():
+    with patch("app.services.search.embeddings._get_config", return_value=None):
+        vectors = await generate_embeddings(["validate token", "auth service"])
+    assert len(vectors) == 2
+    assert all(len(v) == 1536 for v in vectors)
+    assert cosine_similarity(vectors[0], vectors[0]) == pytest.approx(1.0)
+
+
+def test_local_embedding_prefers_related_text():
+    auth = _local_embedding("validate token authentication")
+    related = _local_embedding("token validation")
+    unrelated = _local_embedding("database migration schema")
+    assert cosine_similarity(auth, related) > cosine_similarity(auth, unrelated)
+
+
+def test_build_index_uses_persisted_analysis_contents():
+    owner, repo = "search-test-owner", "search-test-repo"
+    job = create_job(owner, repo, "main")
+    job.status = "completed"
+    job.files = [{"path": "src/auth.ts", "size": len(SAMPLE_SOURCE), "sha": "x", "language": "TypeScript"}]
+    job.parsed_files = [_parsed()]
+    job.contents = {"src/auth.ts": SAMPLE_SOURCE}
+    save_job(job)
+
+    rid = _repo_id(owner, repo)
+    delete_store(rid)
+    try:
+        count = _build_index_from_jobs(rid, owner, repo)
+        assert count > 0
+        store = get_store(rid)
+        assert store.is_indexed is True
+        assert any(c.get("entity_name") == "validateToken" for c in store._chunks)
+    finally:
+        delete_store(rid)
+        _jobs.pop(job.id, None)
+        _save_jobs()

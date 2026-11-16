@@ -58,6 +58,7 @@ IGNORED_FILES = {
 }
 
 MAX_FILE_SIZE = 1_000_000  # 1MB
+MAX_INDEX_CONTENT_CHARS = 200_000  # cap persisted source used for search indexing
 
 
 class AnalysisJob:
@@ -77,6 +78,7 @@ class AnalysisJob:
         self.message: str = "Job created"
         self.files: List[Dict[str, Any]] = []
         self.parsed_files: List[Dict[str, Any]] = []
+        self.contents: Dict[str, str] = {}
         self.total_files: int = 0
         self.filtered_files: int = 0
         self.error: Optional[str] = None
@@ -95,6 +97,7 @@ class AnalysisJob:
             "filtered_files": self.filtered_files,
             "files": self.files,
             "parsed_files": self.parsed_files,
+            "contents": self.contents,
             "error": self.error,
         }
 
@@ -127,6 +130,7 @@ def _load_jobs() -> None:
             job.message = d.get("message", "")
             job.files = d.get("files", [])
             job.parsed_files = d.get("parsed_files", [])
+            job.contents = d.get("contents", {})
             job.total_files = d.get("total_files", 0)
             job.filtered_files = d.get("filtered_files", 0)
             job.error = d.get("error")

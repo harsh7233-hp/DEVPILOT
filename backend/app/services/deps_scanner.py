@@ -132,13 +132,19 @@ def _parse_pyproject_deps(content: str) -> List[Tuple[str, str]]:
 
 def build_osv_queries(packages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     queries = []
+    seen = set()
     for p in packages:
-        if p.get("version"):
-            queries.append({
-                "package": {"name": p["name"], "ecosystem": p["ecosystem"]},
-                "version": p["version"],
-                "_pkg": p,
-            })
+        if not p.get("version"):
+            continue
+        key = (p.get("name"), p.get("version"), p.get("ecosystem"))
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append({
+            "package": {"name": p["name"], "ecosystem": p["ecosystem"]},
+            "version": p["version"],
+            "_pkg": p,
+        })
     return queries
 
 
@@ -153,7 +159,12 @@ def parse_osv_batch_response(resp_json: Dict[str, Any],
     vulns_out: List[Dict[str, Any]] = []
     results = resp_json.get("results", [])
     for q, res in zip(queries, results):
-        pkg = q["_pkg"]
+        pkg = q.get("_pkg") or {
+            "name": (q.get("package") or {}).get("name", ""),
+            "version": q.get("version", ""),
+            "ecosystem": (q.get("package") or {}).get("ecosystem", ""),
+            "source": "",
+        }
         for v in (res or {}).get("vulns", []) or []:
             sev = None
             db_spec = v.get("database_specific") or {}

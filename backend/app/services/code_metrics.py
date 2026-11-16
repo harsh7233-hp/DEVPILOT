@@ -291,8 +291,8 @@ def detect_smells(funcs: List[FuncInfo], files: Dict[str, str]) -> Dict[str, Any
 
 RELIABILITY_PATTERNS = [
     ("critical", re.compile(r"\beval\s*\(|\bexec\s*\("), "dynamic code execution"),
-    ("high", re.compile(r"catch\s*\([^)]*\)\s*\{\s*\}|except\s*:\s*(#.*)?$"), "swallowed errors (empty catch/bare except)"),
-    ("medium", re.compile(r"except\s+\w+\s*:\s*(pass)?\s*$"), "silenced exception"),
+    ("high", re.compile(r"catch\s*\([^)]*\)\s*\{\s*\}|^\s*except\s*:\s*(?:#.*)?$", re.MULTILINE), "swallowed errors (empty catch/bare except)"),
+    ("medium", re.compile(r"^\s*except\s+\w+\s*:\s*(?:pass)?\s*$", re.MULTILINE), "silenced exception"),
 ]
 
 

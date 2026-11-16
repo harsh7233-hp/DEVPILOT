@@ -28,6 +28,7 @@ def test_ai_status_shape():
     else:
         assert data["model"] is None
     assert isinstance(data["embeddings_configured"], bool)
+    assert data["embeddings_mode"] in ("external", "local")
     assert "groq_api_key" not in str(data)
 
 

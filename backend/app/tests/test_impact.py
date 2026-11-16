@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 import pytest
 
+from app.api.impact import _resolve_node_id
 from app.services.impact import (
     AffectedNode,
     Graph,
@@ -631,3 +632,32 @@ class TestDuplicatePathPrevention:
         result = analyze_impact(g, "target")
         all_ids = {a.node.node_id for a in result.direct_impact + result.indirect_impact}
         assert all_ids == {"a", "b", "c", "d"}
+
+
+class TestResolveNodeId:
+    NODES = [
+        {"node_id": "repo:File:src/auth.ts", "label": "File", "name": "src/auth.ts", "file_path": "src/auth.ts"},
+        {"node_id": "repo:Method:src/auth.ts:AuthService.login", "label": "Method", "name": "login", "class_name": "AuthService", "file_path": "src/auth.ts"},
+        {"node_id": "repo:Function:src/util.ts:validateToken", "label": "Function", "name": "validateToken", "file_path": "src/util.ts"},
+    ]
+
+    def test_resolve_exact_node_id(self):
+        assert _resolve_node_id(self.NODES, self.NODES[1]["node_id"]) == self.NODES[1]["node_id"]
+
+    def test_resolve_class_method_name(self):
+        assert _resolve_node_id(self.NODES, "AuthService.login") == self.NODES[1]["node_id"]
+
+    def test_resolve_class_method_double_colon(self):
+        assert _resolve_node_id(self.NODES, "AuthService::login") == self.NODES[1]["node_id"]
+
+    def test_resolve_plain_method_name(self):
+        assert _resolve_node_id(self.NODES, "login") == self.NODES[1]["node_id"]
+
+    def test_resolve_file_path(self):
+        assert _resolve_node_id(self.NODES, "src/util.ts") == self.NODES[2]["node_id"]
+
+    def test_resolve_plain_name(self):
+        assert _resolve_node_id(self.NODES, "validateToken") == self.NODES[2]["node_id"]
+
+    def test_resolve_unknown_returns_input(self):
+        assert _resolve_node_id(self.NODES, "does.not.exist") == "does.not.exist"

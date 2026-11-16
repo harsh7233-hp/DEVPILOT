@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -27,6 +27,54 @@ def _get_token(request: Request) -> str:
 def _repo_id(owner: str, repo: str) -> str:
     raw = f"{owner}/{repo}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _node_aliases(node: Dict) -> set:
+    name = str(node.get("name", "")).strip()
+    class_name = str(node.get("class_name", "")).strip()
+    file_path = str(node.get("file_path", "") or node.get("path", "")).strip()
+    aliases = {name.lower()} if name else set()
+    if class_name and name:
+        aliases.update({
+            f"{class_name}.{name}".lower(),
+            f"{class_name}::{name}".lower(),
+            f"{class_name}#{name}".lower(),
+        })
+    if file_path:
+        aliases.add(file_path.lower())
+    return aliases
+
+
+def _resolve_node_id(nodes: List[Dict], raw: str) -> str:
+    """Accept a real node id or a human-readable name/file path."""
+    target = raw.strip()
+    if not target:
+        return target
+    lower = target.lower()
+
+    for n in nodes:
+        if str(n.get("node_id", "")) == target:
+            return target
+
+    for n in nodes:
+        if lower in _node_aliases(n):
+            return n.get("node_id", target)
+
+    candidates = []
+    for n in nodes:
+        if any(lower in alias for alias in _node_aliases(n)):
+            candidates.append(n)
+
+    if candidates:
+        candidates.sort(
+            key=lambda n: (
+                len(str(n.get("name", ""))),
+                len(str(n.get("file_path", "") or n.get("path", ""))),
+            )
+        )
+        return candidates[0].get("node_id", target)
+
+    return target
 
 
 class AnalyzeRequest(BaseModel):
@@ -62,7 +110,8 @@ async def impact_analyze(request: Request, body: AnalyzeRequest):
 
     graph = Graph(nodes, relationships)
 
-    result: ImpactResult = analyze_impact(graph, body.node_id, body.max_depth)
+    target_id = _resolve_node_id(nodes, body.node_id)
+    result: ImpactResult = analyze_impact(graph, target_id, body.max_depth)
     return result.to_dict()
 
 
@@ -88,5 +137,6 @@ async def impact_analyze_get(
 
     graph = Graph(nodes, relationships)
 
-    result: ImpactResult = analyze_impact(graph, node_id, max_depth)
+    target_id = _resolve_node_id(nodes, node_id)
+    result: ImpactResult = analyze_impact(graph, target_id, max_depth)
     return result.to_dict()

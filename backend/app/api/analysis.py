@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.analyzer.base import analyze_file, detect_language as detect_analyzable_language
 from app.services.analysis import (
+    MAX_INDEX_CONTENT_CHARS,
     create_job,
     detect_language,
     filter_files,
@@ -111,6 +112,7 @@ async def _run_analysis(job_id: str, token: str) -> None:
                     except Exception:
                         content = None
                 if content:
+                    job.contents[item["path"]] = content[:MAX_INDEX_CONTENT_CHARS]
                     analysis = analyze_file(content, item["path"])
                     if analysis:
                         parsed.append(analysis.to_dict())
@@ -179,4 +181,5 @@ async def get_analysis_status(job_id: str, request: Request):
 
     data = job.to_dict()
     data.pop("parsed_files", None)
+    data.pop("contents", None)
     return {"job": data}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import math
+import re
 from typing import List, Optional
 
 import httpx
@@ -33,6 +35,31 @@ def _truncate(text: str) -> str:
     return text
 
 
+def _local_embedding(text: str) -> List[float]:
+    """Deterministic hashing vectorizer used when no embedding provider is set.
+
+    It is lexical rather than semantic, but keeps Code Explorer search usable
+    without requiring a second paid API.
+    """
+    vec = [0.0] * EMBEDDING_DIM
+    tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", text.lower())
+    for token in tokens:
+        h = int.from_bytes(
+            hashlib.blake2b(token.encode(), digest_size=8).digest(), "big"
+        )
+        vec[h % EMBEDDING_DIM] += 2.0
+        for i in range(max(1, len(token) - 2)):
+            gram = token[i : i + 3]
+            h = int.from_bytes(
+                hashlib.blake2b(gram.encode(), digest_size=8).digest(), "big"
+            )
+            vec[h % EMBEDDING_DIM] += 1.0
+    norm = math.sqrt(sum(v * v for v in vec))
+    if norm:
+        vec = [v / norm for v in vec]
+    return vec
+
+
 async def _call_embedding_api(texts: List[str]) -> List[List[float]]:
     config = _get_config()
     if not config:
@@ -62,6 +89,9 @@ async def _call_embedding_api(texts: List[str]) -> List[List[float]]:
 
 async def generate_embeddings(texts: List[str]) -> List[List[float]]:
     truncated = [_truncate(t) for t in texts]
+    if not _get_config():
+        return [_local_embedding(t) for t in truncated]
+
     all_embeddings: List[List[float]] = []
 
     for i in range(0, len(truncated), MAX_BATCH_SIZE):

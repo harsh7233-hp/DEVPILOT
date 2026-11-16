@@ -33,14 +33,28 @@ class LLMRequestError(RuntimeError):
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
+def _clean_env_value(value: Optional[str]) -> str:
+    """Strip whitespace/quotes that often sneak in when pasting env vars."""
+    if not value:
+        return ""
+    cleaned = value.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in "\"'":
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
 def _get_api_config() -> Optional[Dict[str, str]]:
-    api_key = settings.groq_api_key
+    api_key = _clean_env_value(settings.groq_api_key)
+    if api_key.lower().startswith("bearer "):
+        api_key = api_key[7:].strip()
     if not api_key:
         return None
+    base_url = _clean_env_value(settings.groq_base_url) or "https://api.groq.com/openai/v1"
+    model = _clean_env_value(settings.groq_model) or DEFAULT_MODEL
     return {
         "api_key": api_key,
-        "base_url": settings.groq_base_url or "https://api.groq.com/openai/v1",
-        "model": settings.groq_model or DEFAULT_MODEL,
+        "base_url": base_url.rstrip("/"),
+        "model": model,
     }
 
 
@@ -75,7 +89,13 @@ async def _call_llm(
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.RequestError as exc:
-            last_error = f"LLM provider unreachable ({exc.__class__.__name__})"
+            detail = str(exc)[:200]
+            if config.get("api_key"):
+                detail = detail.replace(config["api_key"], "[redacted]")
+            last_error = (
+                f"LLM provider unreachable ({exc.__class__.__name__})"
+                + (f": {detail}" if detail else "")
+            )
             logger.warning(
                 "LLM attempt %s/%s failed: %s", attempt, max_attempts, last_error
             )

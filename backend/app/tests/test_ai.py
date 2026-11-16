@@ -8,6 +8,8 @@ import pytest
 from app.services.ai import (
     LLMRequestError,
     _call_llm,
+    _clean_env_value,
+    _get_api_config,
     _extract_sources,
     _search_nodes_by_keywords,
     _search_rels_for_nodes,
@@ -363,3 +365,29 @@ async def test_probe_llm_uses_tiny_request():
     assert result == "OK"
     assert mock_call.await_args.kwargs["max_tokens"] == 64
     assert mock_call.await_args.kwargs["max_attempts"] == 1
+
+
+class TestApiConfig:
+    def test_clean_env_value_strips_whitespace_and_quotes(self):
+        assert _clean_env_value("  'abc'\n") == "abc"
+        assert _clean_env_value('"abc"') == "abc"
+        assert _clean_env_value(None) == ""
+        assert _clean_env_value("") == ""
+
+    def test_api_config_strips_key_bearer_and_quotes(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.ai.settings.groq_api_key", '  "Bearer gsk_test"\n'
+        )
+        monkeypatch.setattr(
+            "app.services.ai.settings.groq_base_url",
+            " https://api.groq.com/openai/v1/ ",
+        )
+        monkeypatch.setattr(
+            "app.services.ai.settings.groq_model", " openai/gpt-oss-20b "
+        )
+        cfg = _get_api_config()
+        assert cfg == {
+            "api_key": "gsk_test",
+            "base_url": "https://api.groq.com/openai/v1",
+            "model": "openai/gpt-oss-20b",
+        }

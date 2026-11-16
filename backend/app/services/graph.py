@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Dict, Generator, List, Optional
 
 from neo4j import GraphDatabase, Session
+from neo4j.exceptions import GqlError
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _driver = None
 
@@ -343,7 +347,7 @@ def _to_mapping(item: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def build_graph_from_parsed(
+def _build_graph_from_parsed_with_store(
     repo_id: str,
     owner: str,
     name: str,
@@ -523,6 +527,39 @@ def build_graph_from_parsed(
                     stats["relationships"] += 1
 
         return {"status": "ok", "repo_id": repo_id, "stats": stats}
+
+
+
+def _use_memory_graph() -> None:
+    global _driver
+    from app.services.graph_memory import InMemoryGraph
+
+    _driver = InMemoryGraph()
+
+
+def build_graph_from_parsed(
+    repo_id: str,
+    owner: str,
+    name: str,
+    parsed_files: List[Dict[str, Any]],
+    all_files: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Build a graph, falling back to the in-memory store if Neo4j is unavailable."""
+    try:
+        return _build_graph_from_parsed_with_store(
+            repo_id, owner, name, parsed_files, all_files
+        )
+    except GqlError:
+        if not settings.neo4j_password:
+            raise
+        logger.warning(
+            "Neo4j graph build failed; falling back to in-memory graph",
+            exc_info=True,
+        )
+        _use_memory_graph()
+        return _build_graph_from_parsed_with_store(
+            repo_id, owner, name, parsed_files, all_files
+        )
 
 
 # ── Query helpers ──────────────────────────────────────────────────

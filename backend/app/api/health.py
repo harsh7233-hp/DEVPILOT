@@ -15,7 +15,11 @@ async def health_check():
         "status": "ok",
         "service": "devpilot-backend",
         "commit": commit or "local",
-        "graph_backend": "neo4j" if settings.neo4j_password else "memory",
+        "graph_backend": (
+            "neo4j"
+            if settings.graph_backend == "neo4j" and settings.neo4j_password
+            else "memory"
+        ),
     }
 
 

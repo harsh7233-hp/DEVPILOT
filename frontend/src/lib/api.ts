@@ -1,6 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import type { GraphNode, GraphNodeDetail, GraphRelationship } from "./graph-types";
+import { isNetworkError } from "./utils";
 
 export interface ImpactAnalysisRequest {
   owner: string;
@@ -296,6 +297,31 @@ export interface PipelineSecurityIssue {
   recommendation?: string;
 }
 
+const NETWORK_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= NETWORK_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkError(error) || attempt === NETWORK_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      await sleep(NETWORK_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastError;
+}
+
 async function request<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const { params, ...init } = options;
 
@@ -311,7 +337,7 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
     if (qs) url += `?${qs}`;
   }
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     ...init,
     credentials: "include",
     headers: {
@@ -379,6 +405,7 @@ export const api = {
     getGithubUrl: () => `${API_BASE}/api/auth/github`,
   },
   health: {
+    check: () => request<{ status: string; commit: string; graph_backend: string }>("/api/health"),
     aiStatus: () =>
       request<{ ai_configured: boolean; model: string | null; embeddings_configured: boolean }>(
         "/api/health/ai"

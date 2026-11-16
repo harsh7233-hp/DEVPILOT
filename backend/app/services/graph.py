@@ -17,7 +17,8 @@ _driver = None
 def _get_driver():
     global _driver
     if _driver is None:
-        if not settings.neo4j_password:
+        use_neo4j = settings.graph_backend == "neo4j" and bool(settings.neo4j_password)
+        if not use_neo4j:
             from app.services.graph_memory import InMemoryGraph
 
             _driver = InMemoryGraph()

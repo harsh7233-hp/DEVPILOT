@@ -1,11 +1,16 @@
 import os
+import time
+from typing import Any, Dict
 
 from fastapi import APIRouter
 
 from app.config import settings
-from app.services.ai import _get_api_config
+from app.services.ai import _get_api_config, probe_llm
 
 router = APIRouter()
+
+_probe_cache: Dict[str, Any] = {"at": 0.0, "result": None}
+_PROBE_TTL_SECONDS = 60
 
 
 @router.get("/health")
@@ -24,12 +29,36 @@ async def health_check():
 
 
 @router.get("/health/ai")
-async def ai_status():
+async def ai_status(probe: bool = False):
     """Reports whether the Groq AI layer is configured. Never exposes secrets."""
     config = _get_api_config()
     embeddings = bool(settings.embedding_base_url and settings.embedding_api_key)
-    return {
+    result: Dict[str, Any] = {
         "ai_configured": config is not None,
         "model": config["model"] if config else None,
         "embeddings_configured": embeddings,
     }
+
+    if probe:
+        if not config:
+            result["probe"] = "not_configured"
+            return result
+
+        now = time.time()
+        cached = _probe_cache["result"]
+        if cached is not None and now - _probe_cache["at"] < _PROBE_TTL_SECONDS:
+            result.update(cached)
+            return result
+
+        try:
+            out = await probe_llm()
+            probe_result = {"probe": "ok", "probe_response": out.strip()[:50]}
+        except Exception as exc:
+            probe_result = {
+                "probe": "error",
+                "probe_error": f"{exc.__class__.__name__}: {str(exc)[:300]}",
+            }
+        _probe_cache.update({"at": now, "result": probe_result})
+        result.update(probe_result)
+
+    return result

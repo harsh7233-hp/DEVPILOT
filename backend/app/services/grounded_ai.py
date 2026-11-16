@@ -19,11 +19,14 @@ Guarantees:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.services.ai import _call_llm, _get_api_config
 from app.services.secrets_detector import mask_secret
+
+logger = logging.getLogger(__name__)
 
 INSUFFICIENT_EVIDENCE = "Insufficient evidence to answer confidently."
 
@@ -311,11 +314,15 @@ async def ask_devpilot(
     }]
 
     try:
-        raw = await _call_llm(messages, temperature=0.2)
+        raw = await _call_llm(messages, temperature=0.2, timeout=30.0, max_attempts=2)
     except Exception as exc:
+        logger.exception("Grounded AI request failed for %s/%s", owner, repo)
+        detail = str(exc)[:300]
         return {
-            "answer": f"The AI provider could not be reached ({exc.__class__.__name__}). "
-                      f"No answer was generated.",
+            "answer": (
+                f"The AI provider could not be reached "
+                f"({exc.__class__.__name__}: {detail}). No answer was generated."
+            ),
             "sources": [],
             "evidence_used": False,
             "error": "LLM request failed",

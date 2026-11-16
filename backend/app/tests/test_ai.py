@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from app.services.ai import (
+    LLMRequestError,
+    _call_llm,
     _extract_sources,
     _search_nodes_by_keywords,
     _search_rels_for_nodes,
@@ -13,6 +16,7 @@ from app.services.ai import (
     build_context,
     clear_history,
     get_history,
+    probe_llm,
 )
 
 
@@ -73,6 +77,27 @@ class TestSearchNodes:
         result = _search_nodes_by_keywords(nodes, ["auth"])
         assert result[0]["name"] in ("auth_validate", "auth_helper")
 
+    def test_class_question_includes_class_nodes(self):
+        nodes = [_node("App", label="Class"), _node("main", label="Method")]
+        result = _search_nodes_by_keywords(
+            nodes, ["what", "classes", "are", "in", "this", "repository"]
+        )
+        names = [n["name"] for n in result]
+        assert "App" in names
+        assert "main" not in names
+
+    def test_stopword_does_not_match_substring(self):
+        nodes = [_node("main", label="Method")]
+        result = _search_nodes_by_keywords(nodes, ["in"])
+        assert result == []
+
+    def test_function_question_includes_function_nodes(self):
+        nodes = [_node("helper", label="Function"), _node("App", label="Class")]
+        result = _search_nodes_by_keywords(nodes, ["what", "functions", "exist"])
+        names = [n["name"] for n in result]
+        assert "helper" in names
+        assert "App" not in names
+
 
 class TestSearchRels:
     def test_finds_outgoing(self):
@@ -120,6 +145,11 @@ class TestBuildContext:
         ctx = build_context("zzzznothing", nodes, [])
         assert "a" in ctx
         assert "b" in ctx
+
+    def test_class_question_context_includes_class(self):
+        nodes = [_node("App", label="Class"), _node("main", label="Method")]
+        ctx = build_context("What classes are in this repository?", nodes, [])
+        assert "App" in ctx
 
 
 # ── Conversation history tests ────────────────────────────────────
@@ -233,3 +263,103 @@ async def test_answer_with_mock_llm():
     assert "validateToken" in result["answer"]
     assert len(result["sources"]) > 0
     clear_history("o", "r", "tok")
+
+
+class _FakeAsyncClient:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, *args, **kwargs):
+        self.calls += 1
+        return self._responses.pop(0)
+
+
+def _ok_response(content: str = "OK") -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"choices": [{"message": {"content": content}}]},
+    )
+
+
+@pytest.mark.asyncio
+async def test_answer_surfaces_llm_request_error():
+    clear_history("o", "r", "tok")
+    with (
+        patch(
+            "app.services.ai._get_api_config",
+            return_value={"api_key": "test", "base_url": "http://x", "model": "m"},
+        ),
+        patch(
+            "app.services.ai._call_llm",
+            new_callable=AsyncMock,
+            side_effect=LLMRequestError("LLM API error 401: invalid api key"),
+        ),
+    ):
+        result = await answer_question(
+            question="how does auth work?",
+            nodes=[_node("validateToken")],
+            rels=[],
+            owner="acme",
+            repo="repo",
+            user_token="tok",
+        )
+    assert result["error"] == "LLM request failed"
+    assert "401" in result["answer"]
+    assert "not configured" not in result["answer"]
+    assert get_history("acme", "repo", "tok")[-1]["content"] == "AI provider request failed."
+    clear_history("acme", "repo", "tok")
+
+
+@pytest.mark.asyncio
+async def test_call_llm_retries_retryable_status_then_succeeds():
+    client = _FakeAsyncClient([
+        httpx.Response(429, text="rate limited", headers={"retry-after": "0"}),
+        _ok_response("OK"),
+    ])
+    with (
+        patch(
+            "app.services.ai._get_api_config",
+            return_value={"api_key": "test", "base_url": "http://x", "model": "m"},
+        ),
+        patch("app.services.ai.httpx.AsyncClient", return_value=client),
+        patch("app.services.ai.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await _call_llm([{"role": "user", "content": "ping"}], max_attempts=2)
+    assert result == "OK"
+    assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_call_llm_does_not_retry_auth_error():
+    client = _FakeAsyncClient([httpx.Response(401, text="invalid key")])
+    with (
+        patch(
+            "app.services.ai._get_api_config",
+            return_value={"api_key": "test", "base_url": "http://x", "model": "m"},
+        ),
+        patch("app.services.ai.httpx.AsyncClient", return_value=client),
+    ):
+        with pytest.raises(LLMRequestError) as exc_info:
+            await _call_llm([{"role": "user", "content": "ping"}], max_attempts=3)
+    assert "401" in str(exc_info.value)
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_probe_llm_uses_tiny_request():
+    with patch(
+        "app.services.ai._call_llm",
+        new_callable=AsyncMock,
+        return_value="OK",
+    ) as mock_call:
+        result = await probe_llm()
+    assert result == "OK"
+    assert mock_call.await_args.kwargs["max_tokens"] == 64
+    assert mock_call.await_args.kwargs["max_attempts"] == 1

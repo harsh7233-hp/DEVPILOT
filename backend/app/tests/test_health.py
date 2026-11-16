@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.api import health as health_module
 from app.main import app
 from app.services.session import SESSION_COOKIE, create_session, decode_session
 
@@ -83,3 +84,46 @@ def test_session_invalid_signature():
     tampered = parts[0] + ".invalidsignature"
     decoded = decode_session(tampered)
     assert decoded is None
+
+
+def _reset_probe_cache():
+    health_module._probe_cache.update({"at": 0.0, "result": None})
+
+
+def test_ai_probe_ok(monkeypatch):
+    _reset_probe_cache()
+    monkeypatch.setattr(
+        health_module,
+        "_get_api_config",
+        lambda: {"api_key": "x", "base_url": "u", "model": "m"},
+    )
+
+    async def fake_probe():
+        return "OK"
+
+    monkeypatch.setattr(health_module, "probe_llm", fake_probe)
+    response = client.get("/api/health/ai?probe=1")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["probe"] == "ok"
+    assert data["probe_response"] == "OK"
+
+
+def test_ai_probe_surfaces_provider_error(monkeypatch):
+    _reset_probe_cache()
+    monkeypatch.setattr(
+        health_module,
+        "_get_api_config",
+        lambda: {"api_key": "x", "base_url": "u", "model": "m"},
+    )
+
+    async def fake_probe():
+        raise RuntimeError("invalid api key")
+
+    monkeypatch.setattr(health_module, "probe_llm", fake_probe)
+    response = client.get("/api/health/ai?probe=1")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["probe"] == "error"
+    assert "invalid api key" in data["probe_error"]
+    _reset_probe_cache()
